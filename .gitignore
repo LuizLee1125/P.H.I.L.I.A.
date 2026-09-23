@@ -1,0 +1,24 @@
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# Node modules & build artifacts
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# Playwright user data & cache
+browser_profile/
+test-results/
+playwright-report/
+
+# Logs & temp files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+temp_audio/
+*.pcm
+*.wav

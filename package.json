@@ -1,0 +1,27 @@
+{
+  "name": "jarvis-assistant",
+  "version": "1.0.0",
+  "description": "Local voice assistant powered by Gemini and Playwright",
+  "main": "dist/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "start": "tsx src/main.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx test/test_all.ts"
+  },
+  "dependencies": {
+    "@google/genai": "^2.24.0",
+    "@picovoice/porcupine-node": "^4.0.2",
+    "@picovoice/pvrecorder-node": "^1.2.9",
+    "@types/node": "^26.6.2",
+    "dotenv": "^18.0.3",
+    "open": "^11.0.4",
+    "playwright": "^1.63.0",
+    "sound-play": "^1.1.0",
+    "trash": "^10.1.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
