@@ -1,0 +1,19 @@
+{
+  "name": "jarvis-frontend",
+  "version": "1.0.0",
+  "description": "Minimalist Desktop UI for Jarvis Assistant",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.5",
+    "typescript": "^7.0.2",
+    "vite": "^6.2.0"
+  }
+}

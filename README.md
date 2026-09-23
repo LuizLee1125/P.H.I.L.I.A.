@@ -102,21 +102,82 @@ Verify all tools, guardrails, and Gemini connections:
 npm test
 ```
 
-### 5. Launch Jarvis
-```bash
+## How to Run
+
+### Option 1: One-Click Desktop Application (Recommended)
+Launches the sleek, compact desktop assistant window (chatbox + Arc-Reactor voice button + minimized widget mode) and automatically starts the backend daemon:
+```powershell
+npm run app
+```
+
+### Option 2: Run Backend Only (Interactive CLI + Voice Wake-Word)
+Starts the backend daemon with the interactive terminal prompt (`Jarvis ❯ `) and always-listening wake-word:
+```powershell
+npm run backend
+# or
 npm start
+```
+
+### Option 3: Run Frontend Web UI
+Starts the Vite dev server at `http://localhost:5173`:
+```powershell
+npm run frontend
+```
+
+### Option 4: Run via Tauri v2
+Launches the native Tauri desktop window:
+```powershell
+npm run tauri:dev
+```
+
+### Run Automated Tests
+```powershell
+npm test
+```
+
+---
+
+## Project Structure
+
+```
+jarvis/
+├── backend/                  # Fast, resilient assistant server & daemon
+│   ├── src/
+│   │   ├── brain.ts          # Smarter Gemini brain (memory, status events, retries)
+│   │   ├── main.ts           # REST + SSE API server, wake word, CLI
+│   │   ├── stt.ts            # Speech-to-text (Gemini multimodal audio)
+│   │   ├── tts.ts            # Text-to-speech (Gemini native voice)
+│   │   ├── config.ts         # Platform guardrails & deny-list
+│   │   └── tools/            # Safe filesystem, app, and Playwright browser tools
+│   ├── test/                 # Backend automated tests
+│   ├── package.json
+│   └── tsconfig.json
+├── frontend/                 # Simple, compact desktop assistant program
+│   ├── src/
+│   │   ├── index.html        # Clean chatbox + Arc-Reactor voice button
+│   │   ├── style.css         # Futuristic glassmorphism styling
+│   │   └── app.ts            # Real-time SSE streaming & mic recording
+│   ├── src-tauri/            # Tauri v2 native desktop application wrapper
+│   │   ├── Cargo.toml
+│   │   └── tauri.conf.json   # Compact window dimensions (380x560)
+│   └── vite.config.ts
+├── scripts/
+│   └── launch-app.js         # Instant 1-click standalone desktop launcher
+├── .env                      # API keys & settings (gitignored)
+└── package.json              # Root orchestrator scripts
 ```
 
 ---
 
 ## Example Interactions
 
-Once started, say **"JARVIS"** or type directly at the prompt:
+Once started, click the glowing Arc-Reactor, say **"JARVIS"**, or type directly in the chatbox:
 
 ```text
-Jarvis ❯ search files for package.json
-Jarvis ❯ what is the size of package.json?
-Jarvis ❯ open application notepad
-Jarvis ❯ search the web for latest breakthroughs in AI
-Jarvis ❯ exit
+• "Search files for report in Documents"
+• "What is the size and date of package.json?"
+• "Open application notepad"
+• "Search the web for the latest breakthroughs in AI"
+• "Open https://github.com and read the page"
 ```
+

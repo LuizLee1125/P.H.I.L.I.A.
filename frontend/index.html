@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>J.A.R.V.I.S.</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app" class="jarvis-app">
+      <!-- Full Chat & Voice View -->
+      <main class="main-window">
+        <!-- Header -->
+        <header class="header">
+          <div class="header-left">
+            <div class="arc-reactor-icon">
+              <div class="arc-ring"></div>
+              <div class="arc-core"></div>
+            </div>
+            <div class="header-titles">
+              <span class="app-title">J.A.R.V.I.S.</span>
+              <div class="connection-status">
+                <span id="status-indicator" class="status-dot online"></span>
+                <span id="status-text" class="status-label">Online</span>
+              </div>
+            </div>
+          </div>
+          <div class="header-actions">
+            <button id="clear-btn" class="icon-button" title="Clear Chat History">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 6h18m-2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+            </button>
+            <button id="minimize-btn" class="icon-button" title="Compact Widget Mode">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 14h6m0 0v6m0-6L3 21m17-7h-6m0 0v6m0-6l7 7M4 10h6m0 0V4m0 6L3 3m17 7h-6m0 0V4m0 6l7-7"></path>
+              </svg>
+            </button>
+          </div>
+        </header>
+
+        <!-- Messages Chatbox Stream -->
+        <section id="chat-messages" class="chat-stream">
+          <div class="message assistant-message initial-message">
+            <div class="msg-avatar">
+              <div class="avatar-dot"></div>
+            </div>
+            <div class="msg-content">
+              <p>Jarvis online and standing by. Say <strong>"Jarvis"</strong>, tap the microphone, or type below to command.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Dynamic Status & Tool Action Banner -->
+        <div id="activity-banner" class="activity-banner hidden">
+          <div class="activity-spinner"></div>
+          <span id="activity-text" class="activity-text">Thinking...</span>
+        </div>
+
+        <!-- Voice Interaction Center -->
+        <section class="voice-center">
+          <button id="voice-btn" class="voice-reactor-btn" title="Tap to Speak">
+            <div class="reactor-glow"></div>
+            <div class="reactor-pulse-ring"></div>
+            <div class="reactor-inner">
+              <svg id="mic-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                <line x1="12" y1="19" x2="12" y2="22"></line>
+              </svg>
+              <!-- Live Waveform equalizer when recording -->
+              <div id="waveform-visualizer" class="waveform hidden">
+                <span class="bar"></span>
+                <span class="bar"></span>
+                <span class="bar"></span>
+                <span class="bar"></span>
+                <span class="bar"></span>
+              </div>
+            </div>
+          </button>
+          <span id="voice-label" class="voice-caption">Tap to Speak</span>
+        </section>
+
+        <!-- Bottom Chat Input Bar -->
+        <footer class="footer-bar">
+          <form id="chat-form" class="chat-form">
+            <button type="button" id="tts-toggle" class="tts-toggle active" title="Toggle Spoken Voice Output">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+              </svg>
+            </button>
+            <input
+              type="text"
+              id="chat-input"
+              class="chat-input"
+              placeholder="Ask Jarvis anything..."
+              autocomplete="off"
+            />
+            <button type="submit" id="send-btn" class="send-button" title="Send Command">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+            </button>
+          </form>
+        </footer>
+      </main>
+
+      <!-- Minimized Floating Pill View -->
+      <div id="minimized-widget" class="minimized-pill hidden">
+        <div class="pill-left" id="expand-btn" title="Expand Jarvis Window">
+          <div class="mini-arc-reactor"></div>
+          <span class="mini-title">JARVIS</span>
+          <span id="mini-status" class="mini-status-text">Online</span>
+        </div>
+        <button id="mini-voice-btn" class="mini-voice-btn" title="Speak to Jarvis">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+          </svg>
+        </button>
+        <button id="pill-restore-btn" class="pill-icon-btn" title="Restore Window">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 3 21 3 21 9"></polyline>
+            <polyline points="9 21 3 21 3 15"></polyline>
+            <line x1="21" y1="3" x2="14" y2="10"></line>
+            <line x1="3" y1="21" x2="10" y2="14"></line>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/app.ts"></script>
+  </body>
+</html>
