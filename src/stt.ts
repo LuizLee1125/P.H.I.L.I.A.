@@ -22,6 +22,19 @@ export async function transcribeAudio(
     return "";
   }
 
+  // Pre-filter digital silence / low-energy buffers before making API call
+  if (isRawPcm) {
+    let maxAmp = 0;
+    for (let i = 0; i < audioBuffer.length; i += 2) {
+      const sample = Math.abs(audioBuffer.readInt16LE(i));
+      if (sample > maxAmp) maxAmp = sample;
+    }
+    if (maxAmp < 150) {
+      console.log(`[STT] Audio amplitude too low (${maxAmp}), treating as silence.`);
+      return "";
+    }
+  }
+
   // If raw PCM from PvRecorder (16kHz 16-bit mono), wrap into standard WAV
   const wavBuffer = isRawPcm ? pcmToWav(audioBuffer, 16000, 1) : audioBuffer;
 
@@ -44,7 +57,15 @@ export async function transcribeAudio(
 
     const transcription = (response.text || "").trim();
 
-    if (!transcription || transcription.toUpperCase().includes("[SILENCE]")) {
+    // Filter out common silent artifacts like [SILENCE], timestamps (00:00), or empty brackets
+    const cleaned = transcription.replace(/[\[\(].*?[\]\)]/g, "").trim();
+    const isSilenceArtifact =
+      !transcription ||
+      /^\[?\(?\d{1,2}:\d{2}(:\d{2})?\]?\)?$/.test(transcription) ||
+      transcription.toUpperCase().includes("[SILENCE]") ||
+      cleaned.length === 0;
+
+    if (isSilenceArtifact) {
       console.log(`[STT] No audible speech detected.`);
       return "";
     }
