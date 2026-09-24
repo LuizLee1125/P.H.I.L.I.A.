@@ -9,6 +9,8 @@
     "start": "tsx src/main.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "test": "tsx test/test_backend.ts"
   },
   "dependencies": {

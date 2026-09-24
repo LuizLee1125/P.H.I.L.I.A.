@@ -14,7 +14,12 @@
     "tauri:dev": "npm --prefix frontend run tauri dev",
     "tauri:build": "npm --prefix frontend run tauri build",
     "build": "npm --prefix backend run build && npm --prefix frontend run build",
-    "test": "npm --prefix backend test"
+    "test": "npm --prefix backend test",
+    "lint": "npm --prefix backend run lint && npm --prefix frontend run lint",
+    "lint:backend": "npm --prefix backend run lint",
+    "lint:frontend": "npm --prefix frontend run lint",
+    "lint:fix": "npm --prefix backend run lint:fix && npm --prefix frontend run lint:fix",
+    "lint:all": "eslint ."
   },
   "dependencies": {
     "@google/genai": "^2.24.0",
@@ -27,6 +32,12 @@
     "sound-play": "^1.1.0",
     "trash": "^10.1.1",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "~6.0.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.11.0",
+    "globals": "^17.12.0",
+    "typescript-eslint": "^8.70.1"
   }
 }

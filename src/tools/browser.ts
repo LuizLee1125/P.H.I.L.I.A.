@@ -25,7 +25,7 @@ export function setBrowserConfirmationHandler(handler: BrowserConfirmationHandle
 
 let browserContext: BrowserContext | null = null;
 let activePage: Page | null = null;
-let currentElementMap = new Map<number, InteractiveElement>();
+const currentElementMap = new Map<number, InteractiveElement>();
 
 const USER_DATA_DIR = path.resolve(process.cwd(), "browser_profile");
 
