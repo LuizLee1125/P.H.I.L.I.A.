@@ -3,7 +3,7 @@ import readline from "node:readline";
 import { Porcupine, BuiltinKeyword } from "@picovoice/porcupine-node";
 import { PvRecorder } from "@picovoice/pvrecorder-node";
 import { config } from "./config.js";
-import { JarvisBrain, type StatusEvent } from "./brain.js";
+import { PhiliaBrain, type StatusEvent } from "./brain.js";
 import { speak, synthesizeWav } from "./tts.js";
 import { transcribeAudio } from "./stt.js";
 import { browserClose } from "./tools/browser.js";
@@ -41,7 +41,7 @@ setBrowserConfirmationHandler(promptConfirmation);
 setFileWriteConfirmationHandler(promptConfirmation);
 
 // Initialize Brain
-const brain = new JarvisBrain(config.geminiModel);
+const brain = new PhiliaBrain(config.geminiModel);
 
 let isProcessing = false;
 let isShuttingDown = false;
@@ -97,8 +97,8 @@ export async function executeUserCommand(
       audioBase64,
     };
   } catch (err: any) {
-    const errorMsg = "I encountered an error processing that request, sir.";
-    console.error(`[Jarvis Error] ❌`, err.message || err);
+    const errorMsg = "I encountered an error processing that request.";
+    console.error(`[Philia Error] ❌`, err.message || err);
     broadcastSse({ type: "error", message: err.message || errorMsg });
     if (playVoiceOutLoud) speak(errorMsg).catch(() => {});
     return { reply: errorMsg, toolsUsed: [] };
@@ -193,9 +193,9 @@ async function startVoiceListener() {
         const keywordIndex = porcupineInstance.process(pcmFrame);
 
         if (keywordIndex === 0) {
-          console.log(`\n⚡ [Wake Word] "JARVIS" detected!`);
-          broadcastSse({ type: "wake_word", message: "JARVIS detected" });
-          await speak("Yes, sir?");
+          console.log(`\n⚡ [Wake Word] "PHILIA" detected!`);
+          broadcastSse({ type: "wake_word", message: "PHILIA detected" });
+          await speak("Yes? How can I assist you?");
 
           broadcastSse({ type: "listening", message: "Listening..." });
           const commandAudio = await recordCommandClip(recorderInstance);
@@ -208,7 +208,7 @@ async function startVoiceListener() {
               await executeUserCommand(transcribed, true);
             } else {
               broadcastSse({ type: "idle", message: "Didn't catch that" });
-              await speak("I didn't catch that, sir.");
+              await speak("I didn't catch that.");
             }
           }
         }
@@ -357,7 +357,7 @@ function startApiServer() {
         brain.reset();
         broadcastSse({ type: "reset", message: "Context reset" });
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ success: true, message: "Jarvis context cleared." }));
+        res.end(JSON.stringify({ success: true, message: "Philia context cleared." }));
         return;
       }
 
@@ -370,7 +370,7 @@ function startApiServer() {
   });
 
   server.listen(config.port, "127.0.0.1", () => {
-    console.log(`[API Server] 🚀 Jarvis HTTP & SSE service active at http://127.0.0.1:${config.port}`);
+    console.log(`[API Server] 🚀 Philia HTTP & SSE service active at http://127.0.0.1:${config.port}`);
   });
 
   return server;
@@ -380,7 +380,7 @@ function runInteractiveCli() {
   const promptUser = () => {
     if (isShuttingDown) return;
 
-    rl.question("Jarvis ❯ ", async (input) => {
+    rl.question("Philia ❯ ", async (input) => {
       const command = input.trim();
 
       if (command.toLowerCase() === "exit" || command.toLowerCase() === "quit") {
@@ -402,7 +402,7 @@ function runInteractiveCli() {
 async function shutdown() {
   if (isShuttingDown) return;
   isShuttingDown = true;
-  console.log(`\n[Jarvis] Shutting down backend...`);
+  console.log(`\n[Philia] Shutting down backend...`);
 
   if (recorderInstance) {
     try {
@@ -419,7 +419,7 @@ async function shutdown() {
 
   await browserClose();
   rl.close();
-  console.log(`[Jarvis] Offline. Goodbye, sir.\n`);
+  console.log(`[Philia] Offline. Goodbye.\n`);
   process.exit(0);
 }
 
@@ -428,7 +428,8 @@ process.on("SIGTERM", shutdown);
 
 async function main() {
   console.log("=================================================");
-  console.log("       J.A.R.V.I.S. Desktop Assistant Backend     ");
+  console.log("     P.H.I.L.I.A. Desktop Assistant Backend      ");
+  console.log("  Precise Holographic Intelligence & Logical Interface Assistant");
   console.log("=================================================");
   console.log(`Platform: ${process.platform} | Node: ${process.version}`);
   console.log(`Model: ${config.geminiModel} | Port: ${config.port}`);

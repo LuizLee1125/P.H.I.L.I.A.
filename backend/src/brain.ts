@@ -196,7 +196,7 @@ async function executeTool(
   args: Record<string, any>,
   onStatus?: StatusCallback
 ): Promise<any> {
-  console.log(`\n[Jarvis Tool Call] 🛠️ Executing: ${name}(${JSON.stringify(args)})`);
+  console.log(`\n[Philia Tool Call] 🛠️ Executing: ${name}(${JSON.stringify(args)})`);
   onStatus?.({
     type: "tool_start",
     tool: name,
@@ -250,7 +250,7 @@ async function executeTool(
 
     return result;
   } catch (err: any) {
-    console.error(`[Jarvis Tool Error] ❌ Error executing "${name}":`, err.message || err);
+    console.error(`[Philia Tool Error] ❌ Error executing "${name}":`, err.message || err);
     onStatus?.({
       type: "error",
       tool: name,
@@ -264,19 +264,21 @@ async function executeTool(
 }
 
 function buildSystemInstruction(): string {
-  return `You are Jarvis, a brilliant, articulate, and reliable desktop AI assistant.
+  return `You are Philia (P.H.I.L.I.A. — Precise Holographic Intelligence and Logical Interface Assistant), a brilliant, articulate, and reliable desktop AI assistant.
 Current Environment:
 - Platform: ${process.platform}
 - User Home: ${config.homeDir}
-- Assistant Name: JARVIS
+- Assistant Name: Philia (P.H.I.L.I.A.)
+- Full Acronym: Precise Holographic Intelligence and Logical Interface Assistant
 
 Behavior Guidelines:
 1. Provide concise, polished, and natural answers suitable for voice synthesis and desktop chat.
-2. If asked to inspect or locate files, use searchFiles, getFileMetadata, or readFileContent.
-3. If asked to open apps or web pages, use openApplication or browser tools.
-4. When browsing the web, examine the numbered interactive elements ([1], [2], etc.) and interact by ref.
-5. System guardrails strictly protect system files. Respect security constraints.
-6. When summarizing actions, be direct and helpful.`;
+2. If asked for your name or identity, state that you are Philia, which stands for Precise Holographic Intelligence and Logical Interface Assistant.
+3. If asked to inspect or locate files, use searchFiles, getFileMetadata, or readFileContent.
+4. If asked to open apps or web pages, use openApplication or browser tools.
+5. When browsing the web, examine the numbered interactive elements ([1], [2], etc.) and interact by ref.
+6. System guardrails strictly protect system files. Respect security constraints.
+7. When summarizing actions, be direct and helpful.`;
 }
 
 export interface BrainProcessResult {
@@ -284,7 +286,7 @@ export interface BrainProcessResult {
   toolsUsed: Array<{ tool: string; args: any; result: any }>;
 }
 
-export class JarvisBrain {
+export class PhiliaBrain {
   private chat: any = null;
   private currentModel: string;
   private historyLength: number = 0;
@@ -331,7 +333,7 @@ export class JarvisBrain {
            err.message.includes("connection failed"));
 
         if (isTransient && attempt < maxRetries) {
-          console.warn(`[Jarvis Brain] ⚠️ API request hiccup (${err.message}). Retrying in ${delay}ms (attempt ${attempt}/${maxRetries})...`);
+          console.warn(`[Philia Brain] ⚠️ API request hiccup (${err.message}). Retrying in ${delay}ms (attempt ${attempt}/${maxRetries})...`);
           await new Promise((r) => setTimeout(r, delay));
           delay *= 2;
           continue;
@@ -339,7 +341,7 @@ export class JarvisBrain {
 
         // Try model fallback if 503 persists
         if (err.message && err.message.includes("503") && this.currentModel !== "gemini-3.5-flash-lite") {
-          console.warn(`[Jarvis Brain] ⚠️ Model ${this.currentModel} busy, switching to gemini-3.5-flash-lite...`);
+          console.warn(`[Philia Brain] ⚠️ Model ${this.currentModel} busy, switching to gemini-3.5-flash-lite...`);
           this.currentModel = "gemini-3.5-flash-lite";
           this.initChat();
           return await this.chat.sendMessage(payload);
@@ -361,7 +363,7 @@ export class JarvisBrain {
       this.initChat();
     }
 
-    console.log(`\n[Jarvis Brain] 🧠 Processing: "${prompt}" (Model: ${this.currentModel})`);
+    console.log(`\n[Philia Brain] 🧠 Processing: "${prompt}" (Model: ${this.currentModel})`);
     onStatus?.({
       type: "thinking",
       message: "Analyzing request...",
@@ -391,7 +393,7 @@ export class JarvisBrain {
         });
       }
 
-      console.log(`[Jarvis Brain] 🔄 Sending tool output back to Gemini (step ${iteration})...`);
+      console.log(`[Philia Brain] 🔄 Sending tool output back to Gemini (step ${iteration})...`);
       onStatus?.({
         type: "thinking",
         message: "Synthesizing tool results...",
@@ -400,8 +402,8 @@ export class JarvisBrain {
       response = await this.sendWithRetry({ message: toolResponses });
     }
 
-    const finalAnswer = response.text || "Task complete, sir.";
-    console.log(`[Jarvis Brain] 💬 Reply: ${finalAnswer}\n`);
+    const finalAnswer = response.text || "Task complete.";
+    console.log(`[Philia Brain] 💬 Reply: ${finalAnswer}\n`);
 
     onStatus?.({
       type: "reply",
@@ -420,3 +422,7 @@ export class JarvisBrain {
     };
   }
 }
+
+// Backwards-compatibility alias
+export const JarvisBrain = PhiliaBrain;
+export type JarvisBrain = PhiliaBrain;

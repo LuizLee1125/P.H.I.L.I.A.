@@ -5,7 +5,7 @@ import path from "node:path";
 
 async function testE2e() {
   console.log("=========================================");
-  console.log("   Running Jarvis E2E HTTP API Tests     ");
+  console.log("   Running Philia E2E HTTP API Tests     ");
   console.log("=========================================\n");
 
   const port = 4172;
@@ -91,7 +91,7 @@ async function testE2e() {
 
   assert.strictEqual(chatRes.status, 200);
   assert.ok(chatRes.data.reply, "Should return a reply");
-  console.log("   Jarvis Reply:", chatRes.data.reply.slice(0, 100));
+  console.log("   Philia Reply:", chatRes.data.reply.slice(0, 100));
 
   // 3. Test /api/reset
   console.log("3. Testing POST /api/reset...");

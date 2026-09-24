@@ -88,7 +88,7 @@ export async function speak(text: string): Promise<void> {
   const wavBuffer = await synthesizeWav(text);
   if (!wavBuffer) return;
 
-  const tempDir = path.join(os.tmpdir(), "jarvis-audio");
+  const tempDir = path.join(os.tmpdir(), "philia-audio");
   if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir, { recursive: true });
   }

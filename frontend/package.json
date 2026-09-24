@@ -1,7 +1,7 @@
 {
-  "name": "jarvis-frontend",
+  "name": "philia-frontend",
   "version": "1.0.0",
-  "description": "Minimalist Desktop UI for Jarvis Assistant",
+  "description": "Minimalist Desktop UI for Philia (P.H.I.L.I.A.) Assistant",
   "private": true,
   "type": "module",
   "scripts": {

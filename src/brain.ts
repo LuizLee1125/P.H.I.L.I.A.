@@ -190,7 +190,7 @@ const allTools = [
  * Execute a named tool with provided arguments
  */
 async function executeTool(name: string, args: Record<string, any>): Promise<any> {
-  console.log(`\n[Jarvis Tool Call] 🛠️ Executing: ${name}(${JSON.stringify(args)})`);
+  console.log(`\n[Philia Tool Call] 🛠️ Executing: ${name}(${JSON.stringify(args)})`);
 
   try {
     switch (name) {
@@ -224,7 +224,7 @@ async function executeTool(name: string, args: Record<string, any>): Promise<any
         throw new Error(`Tool "${name}" is not recognized or permitted.`);
     }
   } catch (err: any) {
-    console.error(`[Jarvis Tool Error] ❌ Error executing "${name}":`, err.message || err);
+    console.error(`[Philia Tool Error] ❌ Error executing "${name}":`, err.message || err);
     return {
       error: true,
       message: err.message || String(err),
@@ -232,16 +232,16 @@ async function executeTool(name: string, args: Record<string, any>): Promise<any
   }
 }
 
-const SYSTEM_INSTRUCTION = `You are Jarvis, a highly capable, articulate, and reliable desktop AI voice assistant.
+const SYSTEM_INSTRUCTION = `You are Philia (P.H.I.L.I.A. — Precise Holographic Intelligence and Logical Interface Assistant), a highly capable, articulate, and reliable desktop AI assistant.
 You help the user interact with their computer, inspect and locate files, launch applications, and browse the web.
 
 Key principles:
-1. Always be concise, helpful, and polite. Your responses are read aloud via text-to-speech, so avoid long code blocks or verbose raw JSON dumps unless specifically asked.
+1. Always be concise, helpful, and polite. If asked your name or identity, state that you are Philia, which stands for Precise Holographic Intelligence and Logical Interface Assistant.
 2. Safety & Guardrails: Critical OS directories are protected. Never attempt to circumvent safety boundaries.
 3. For web browsing, always use browserSearch or browserOpen first, observe the numbered interactive elements ([1], [2], etc.), and use browserClick or browserType by ref.
 4. When a task completes, summarize what you did in a clear, natural sentence.`;
 
-export class JarvisBrain {
+export class PhiliaBrain {
   private chat: any = null;
   private currentModel: string;
 
@@ -269,7 +269,7 @@ export class JarvisBrain {
       this.initChat();
     }
 
-    console.log(`\n[Jarvis Brain] 🧠 Processing: "${prompt}" (Model: ${this.currentModel})`);
+    console.log(`\n[Philia Brain] 🧠 Processing: "${prompt}" (Model: ${this.currentModel})`);
 
     let response: any;
     try {
@@ -277,7 +277,7 @@ export class JarvisBrain {
     } catch (err: any) {
       // If primary model has high demand (503), attempt fallback
       if (err.message && err.message.includes("503") && this.currentModel !== "gemini-3.5-flash-lite") {
-        console.warn(`[Jarvis Brain] ⚠️ Model ${this.currentModel} busy, falling back to gemini-3.5-flash-lite...`);
+        console.warn(`[Philia Brain] ⚠️ Model ${this.currentModel} busy, falling back to gemini-3.5-flash-lite...`);
         this.currentModel = "gemini-3.5-flash-lite";
         this.initChat();
         response = await this.chat.sendMessage({ message: prompt });
@@ -305,12 +305,16 @@ export class JarvisBrain {
         });
       }
 
-      console.log(`[Jarvis Brain] 🔄 Sending tool output back to Gemini (step ${iteration})...`);
+      console.log(`[Philia Brain] 🔄 Sending tool output back to Gemini (step ${iteration})...`);
       response = await this.chat.sendMessage({ message: toolResponses });
     }
 
-    const finalAnswer = response.text || "Task completed, sir.";
-    console.log(`[Jarvis Brain] 💬 Reply: ${finalAnswer}\n`);
+    const finalAnswer = response.text || "Task completed.";
+    console.log(`[Philia Brain] 💬 Reply: ${finalAnswer}\n`);
     return finalAnswer;
   }
 }
+
+// Backwards-compatibility alias
+export const JarvisBrain = PhiliaBrain;
+export type JarvisBrain = PhiliaBrain;

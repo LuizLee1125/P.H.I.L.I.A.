@@ -3,12 +3,12 @@ import path from "node:path";
 import http from "node:http";
 import { config, isPathDenied, assertPathNotDenied } from "../src/config.js";
 import { searchFiles, getFileMetadata, readFileContent } from "../src/tools/files.js";
-import { JarvisBrain } from "../src/brain.js";
+import { PhiliaBrain } from "../src/brain.js";
 import { pcmToWav } from "../src/tts.js";
 
 async function runTests() {
   console.log("=========================================");
-  console.log("     Running Jarvis Backend Tests        ");
+  console.log("     Running Philia Backend Tests        ");
   console.log("=========================================\n");
 
   let passed = 0;
@@ -42,7 +42,7 @@ async function runTests() {
   await test("Files: readFileContent on package.json", async () => {
     const pkg = path.resolve(process.cwd(), "package.json");
     const res = await readFileContent(pkg, 200);
-    assert.ok(res.content.includes("jarvis"));
+    assert.ok(res.content.includes("philia"));
   });
 
   await test("TTS: pcmToWav valid header structure", () => {
@@ -52,8 +52,8 @@ async function runTests() {
   });
 
   await test("Brain: processes query and returns structured reply", async () => {
-    const brain = new JarvisBrain();
-    const res = await brain.process("Hello Jarvis, state your name and readiness.");
+    const brain = new PhiliaBrain();
+    const res = await brain.process("Hello Philia, state your name and readiness.");
     assert.ok(res.reply.length > 0);
   });
 

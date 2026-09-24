@@ -51,6 +51,7 @@ body {
 }
 
 /* Main Container */
+.philia-app,
 .jarvis-app {
   width: 100%;
   height: 100%;
@@ -129,6 +130,17 @@ body {
   letter-spacing: 1.5px;
   color: var(--accent-cyan);
   text-shadow: 0 0 12px rgba(0, 240, 255, 0.4);
+}
+
+.app-subtitle {
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
 }
 
 .connection-status {

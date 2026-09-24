@@ -1,7 +1,7 @@
 {
-  "name": "jarvis-backend",
+  "name": "philia-backend",
   "version": "1.0.0",
-  "description": "Jarvis Desktop Assistant Backend and Brain",
+  "description": "Philia (P.H.I.L.I.A.) Desktop Assistant Backend and Brain",
   "main": "dist/main.js",
   "type": "module",
   "scripts": {

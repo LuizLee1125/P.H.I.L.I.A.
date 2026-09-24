@@ -4,7 +4,7 @@ import path from "node:path";
 import fs from "node:fs";
 
 console.log("=========================================");
-console.log("    Launching J.A.R.V.I.S. Desktop App    ");
+console.log("    Launching P.H.I.L.I.A. Desktop App   ");
 console.log("=========================================\n");
 
 const BACKEND_PORT = 4172;
@@ -43,7 +43,7 @@ const isBackendUp = await checkPort(BACKEND_PORT);
 let backendProcess = null;
 
 if (!isBackendUp) {
-  console.log("[Launcher] Starting Jarvis Backend daemon...");
+  console.log("[Launcher] Starting Philia Backend daemon...");
   backendProcess = spawn("npx", ["tsx", "src/main.ts"], {
     cwd: path.resolve(process.cwd(), "backend"),
     stdio: "inherit",
@@ -71,7 +71,7 @@ if (!isFrontendUp) {
 await waitForServer(FRONTEND_PORT, "Frontend UI");
 
 // 3. Launch Desktop Window in dedicated standalone mode
-console.log("[Launcher] Opening compact J.A.R.V.I.S. desktop application window...");
+console.log("[Launcher] Opening compact P.H.I.L.I.A. desktop application window...");
 
 const targetUrl = `http://127.0.0.1:${FRONTEND_PORT}`;
 let launched = false;
@@ -102,7 +102,7 @@ if (!launched) {
 }
 
 console.log("\n=========================================");
-console.log("   J.A.R.V.I.S. Desktop Assistant Online ");
+console.log("   P.H.I.L.I.A. Desktop Assistant Online ");
 console.log(`   UI: http://127.0.0.1:${FRONTEND_PORT}`);
 console.log(`   API: http://127.0.0.1:${BACKEND_PORT}`);
 console.log("=========================================\n");

@@ -91,7 +91,7 @@ export async function speak(text: string): Promise<void> {
     // Sample rate: Gemini TTS returns 24000Hz 16-bit PCM by default
     const wavBuffer = pcmToWav(rawPcm, 24000, 1);
 
-    const tempDir = path.join(os.tmpdir(), "jarvis-audio");
+    const tempDir = path.join(os.tmpdir(), "philia-audio");
     if (!fs.existsSync(tempDir)) {
       fs.mkdirSync(tempDir, { recursive: true });
     }

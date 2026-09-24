@@ -6,13 +6,13 @@ import { config, isPathDenied, assertPathNotDenied } from "../src/config.js";
 import { searchFiles, getFileMetadata, readFileContent } from "../src/tools/files.js";
 import { writeFileContent, deleteFile, setFileWriteConfirmationHandler } from "../src/tools/filesWrite.js";
 import { browserOpen, browserReadPage, browserClose } from "../src/tools/browser.js";
-import { JarvisBrain } from "../src/brain.js";
+import { PhiliaBrain } from "../src/brain.js";
 import { pcmToWav } from "../src/tts.js";
 import { transcribeAudio } from "../src/stt.js";
 
 async function runTests() {
   console.log("=========================================");
-  console.log("   Running Jarvis Comprehensive Tests    ");
+  console.log("   Running Philia Comprehensive Tests    ");
   console.log("=========================================\n");
 
   let passed = 0;
@@ -69,7 +69,7 @@ async function runTests() {
     const pkgPath = path.resolve(process.cwd(), "package.json");
     const result = await readFileContent(pkgPath, 500);
     assert.strictEqual(result.isBinary, false);
-    assert.ok(result.content.includes("jarvis-assistant"));
+    assert.ok(result.content.includes("philia-assistant"));
   });
 
   await test("Files: searchFiles locates package.json", async () => {
@@ -96,14 +96,14 @@ async function runTests() {
 
   // 4. FilesWrite & Trash (Phase 2 module)
   await test("FilesWrite: writeFileContent and deleteFile with trash", async () => {
-    const testDir = path.join(os.tmpdir(), "jarvis-test-" + Date.now());
+    const testDir = path.join(os.tmpdir(), "philia-test-" + Date.now());
     fs.mkdirSync(testDir, { recursive: true });
     const testFile = path.join(testDir, "test-note.txt");
 
     setFileWriteConfirmationHandler(() => true); // Auto-confirm for unit test
 
     // Write file
-    const writeRes = await writeFileContent(testFile, "Hello Jarvis test!");
+    const writeRes = await writeFileContent(testFile, "Hello Philia test!");
     assert.strictEqual(writeRes.success, true);
     assert.ok(fs.existsSync(testFile));
 
@@ -129,7 +129,7 @@ async function runTests() {
 
   // 6. Gemini Brain tool calling integration
   await test("Brain: processes query and executes getFileMetadata tool", async () => {
-    const brain = new JarvisBrain();
+    const brain = new PhiliaBrain();
     const reply = await brain.process("What is the size and modification date of package.json in the current directory?");
     console.log(`\n   [Brain Reply Excerpt]: ${reply.slice(0, 120)}...`);
     assert.ok(reply.length > 0, "Brain should produce a response");

@@ -1,4 +1,4 @@
-// J.A.R.V.I.S. Desktop Client Logic
+// P.H.I.L.I.A. Desktop Client Logic
 
 const API_BASE = "http://127.0.0.1:4172";
 
@@ -62,7 +62,7 @@ function handleServerEvent(event: any) {
 
     case "wake_word":
       setVoiceState("listening", "Listening to voice...");
-      showActivity("Wake word detected: JARVIS");
+      showActivity("Wake word detected: PHILIA");
       break;
 
     case "listening":
@@ -77,7 +77,7 @@ function handleServerEvent(event: any) {
 
     case "thinking":
       setVoiceState("busy", "Thinking...");
-      showActivity(event.message || "Jarvis is analyzing...");
+      showActivity(event.message || "Philia is analyzing...");
       break;
 
     case "tool_start":
@@ -241,7 +241,7 @@ async function sendCommand(prompt: string) {
   } catch (err: any) {
     hideActivity();
     setVoiceState("idle", "Tap to Speak");
-    appendAssistantMessage("Could not connect to Jarvis backend. Please ensure the backend is running.");
+    appendAssistantMessage("Could not connect to Philia backend. Please ensure the backend is running.");
   } finally {
     isBusy = false;
   }

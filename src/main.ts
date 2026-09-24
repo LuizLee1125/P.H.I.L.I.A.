@@ -2,7 +2,7 @@ import readline from "node:readline";
 import { Porcupine, BuiltinKeyword } from "@picovoice/porcupine-node";
 import { PvRecorder } from "@picovoice/pvrecorder-node";
 import { config } from "./config.js";
-import { JarvisBrain } from "./brain.js";
+import { PhiliaBrain } from "./brain.js";
 import { speak } from "./tts.js";
 import { transcribeAudio } from "./stt.js";
 import { browserClose } from "./tools/browser.js";
@@ -39,7 +39,7 @@ setBrowserConfirmationHandler(promptConfirmation);
 setFileWriteConfirmationHandler(promptConfirmation);
 
 // Initialize Brain
-const brain = new JarvisBrain(config.geminiModel);
+const brain = new PhiliaBrain(config.geminiModel);
 
 let isProcessing = false;
 let isShuttingDown = false;
@@ -57,8 +57,8 @@ async function handleUserCommand(command: string) {
     const reply = await brain.process(command.trim());
     await speak(reply);
   } catch (err: any) {
-    console.error(`[Jarvis Error] ❌`, err.message || err);
-    await speak("I encountered an error processing that request, sir.");
+    console.error(`[Philia Error] ❌`, err.message || err);
+    await speak("I encountered an error processing that request.");
   } finally {
     isProcessing = false;
   }
@@ -71,14 +71,14 @@ async function startVoiceListener() {
   if (!config.picovoiceAccessKey || config.picovoiceAccessKey.trim() === "") {
     console.log(`\nℹ️  [Voice Wake-Word] PICOVOICE_ACCESS_KEY is empty in .env.`);
     console.log(`   You can interact fully via typed text in the console right now.`);
-    console.log(`   To enable hands-free "JARVIS" wake-word listening:`);
+    console.log(`   To enable hands-free "PHILIA" wake-word listening:`);
     console.log(`   1. Grab a free key at https://console.picovoice.ai/`);
     console.log(`   2. Set PICOVOICE_ACCESS_KEY in your .env file.\n`);
     return;
   }
 
   try {
-    console.log(`[Voice Wake-Word] Initializing Porcupine with built-in "JARVIS" keyword...`);
+    console.log(`[Voice Wake-Word] Initializing Porcupine wake word engine...`);
     porcupineInstance = new Porcupine(
       config.picovoiceAccessKey.trim(),
       [BuiltinKeyword.JARVIS],
@@ -95,7 +95,7 @@ async function startVoiceListener() {
     recorderInstance = new PvRecorder(porcupineInstance.frameLength, 0);
     recorderInstance.start();
     console.log(`[Voice Wake-Word] 🎙️ Always-listening active using device: "${recorderInstance.getSelectedDevice()}"`);
-    console.log(`   Say "JARVIS" to activate voice control.\n`);
+    console.log(`   Say "PHILIA" to activate voice control.\n`);
 
     listenLoop();
   } catch (err: any) {
@@ -121,8 +121,8 @@ async function listenLoop() {
       const keywordIndex = porcupineInstance.process(pcmFrame);
 
       if (keywordIndex === 0) {
-        console.log(`\n⚡ [Wake Word] "JARVIS" detected!`);
-        await speak("Yes, sir?");
+        console.log(`\n⚡ [Wake Word] "PHILIA" detected!`);
+        await speak("Yes? How may I assist you?");
 
         console.log(`[Mic] 🔴 Recording command clip (speak now)...`);
         const commandAudio = await recordCommandClip(recorderInstance);
@@ -133,8 +133,8 @@ async function listenLoop() {
             console.log(`[User Spoke] 🗣️ "${transcribed}"`);
             await handleUserCommand(transcribed);
           } else {
-            console.log(`[Jarvis] Didn't catch that.`);
-            await speak("I didn't catch that, sir.");
+            console.log(`[Philia] Didn't catch that.`);
+            await speak("I didn't catch that.");
           }
         }
       }
@@ -206,7 +206,7 @@ function runInteractivePrompt() {
   const promptUser = () => {
     if (isShuttingDown) return;
 
-    rl.question("Jarvis ❯ ", async (input) => {
+    rl.question("Philia ❯ ", async (input) => {
       const command = input.trim();
 
       if (command.toLowerCase() === "exit" || command.toLowerCase() === "quit") {
@@ -231,7 +231,7 @@ function runInteractivePrompt() {
 async function shutdown() {
   if (isShuttingDown) return;
   isShuttingDown = true;
-  console.log(`\n[Jarvis] Shutting down services...`);
+  console.log(`\n[Philia] Shutting down services...`);
 
   if (recorderInstance) {
     try {
@@ -248,7 +248,7 @@ async function shutdown() {
 
   await browserClose();
   rl.close();
-  console.log(`[Jarvis] Offline. Goodbye, sir.\n`);
+  console.log(`[Philia] Offline. Goodbye.\n`);
   process.exit(0);
 }
 
@@ -260,7 +260,8 @@ process.on("SIGTERM", shutdown);
  */
 async function main() {
   console.log("=================================================");
-  console.log("       J.A.R.V.I.S. Desktop Voice Assistant      ");
+  console.log("       P.H.I.L.I.A. Desktop Voice Assistant      ");
+  console.log("  Precise Holographic Intelligence & Logical Interface Assistant");
   console.log("=================================================");
   console.log(`Platform: ${process.platform} | Node: ${process.version}`);
   console.log(`Gemini Model: ${config.geminiModel}`);
@@ -269,7 +270,7 @@ async function main() {
   console.log("-------------------------------------------------");
 
   // Welcome chime/speech
-  speak("Jarvis is online and ready, sir.").catch(() => {});
+  speak("Philia is online and ready.").catch(() => {});
 
   // Start background wake-word listener (if key provided)
   startVoiceListener().catch((err) => {

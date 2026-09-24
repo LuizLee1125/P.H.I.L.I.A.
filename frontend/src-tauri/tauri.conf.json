@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "jarvis-assistant",
+  "productName": "philia-assistant",
   "version": "0.1.0",
   "identifier": "com.tauri.dev",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "J.A.R.V.I.S.",
+        "title": "P.H.I.L.I.A.",
         "width": 380,
         "height": 560,
         "minWidth": 320,

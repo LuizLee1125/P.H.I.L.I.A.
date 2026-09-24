@@ -1,7 +1,7 @@
 {
-  "name": "jarvis-assistant",
+  "name": "philia-assistant",
   "version": "1.0.0",
-  "description": "Local voice assistant powered by Gemini and Playwright",
+  "description": "Philia (P.H.I.L.I.A.) - Precise Holographic Intelligence and Logical Interface Assistant",
   "main": "dist/main.js",
   "type": "module",
   "scripts": {
