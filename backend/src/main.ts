@@ -10,6 +10,16 @@ import { browserClose } from "./tools/browser.js";
 import { setAppConfirmationHandler } from "./tools/apps.js";
 import { setBrowserConfirmationHandler } from "./tools/browser.js";
 import { setFileWriteConfirmationHandler } from "./tools/filesWrite.js";
+import { setCommandConfirmationHandler } from "./tools/system.js";
+import {
+  isFullAccessGranted,
+  grantFullAccess,
+  revokeFullAccess,
+  hasAskedFullAccess,
+  recordAskedFullAccess,
+  getPermissionsState,
+  onPermissionsChanged,
+} from "./permissions.js";
 
 // Global readline interface for CLI
 const rl = readline.createInterface({
@@ -21,24 +31,47 @@ function askQuestion(query: string): Promise<string> {
   return new Promise((resolve) => rl.question(query, resolve));
 }
 
-// Guardrail confirmation handler
+// Guardrail confirmation handler with "ask first, never again" logic
 async function promptConfirmation(actionDescription: string): Promise<boolean> {
-  console.log(`\n⚠️  [GUARDRAIL CONFIRMATION REQUIRED]`);
+  // If Full Access is already granted, NEVER ask again!
+  if (isFullAccessGranted()) {
+    console.log(`[Full Access] 🔓 Auto-permitting action: ${actionDescription}`);
+    return true;
+  }
+
+  console.log(`\n⚠️  [COMPUTER ACCESS PERMISSION REQUESTED]`);
   console.log(`Action: ${actionDescription}`);
   broadcastSse({
     type: "confirmation_required",
     message: actionDescription,
+    fullAccessRequired: true,
   });
 
-  // If interactive console is open, prompt user
-  const answer = await askQuestion(`Proceed with this action? (y/N): `);
-  const confirmed = answer.trim().toLowerCase() === "y" || answer.trim().toLowerCase() === "yes";
+  // Prompt the user in CLI
+  const answer = await askQuestion(`Grant Philia Full Access to proceed? (y/N/always): `);
+  const trimmed = answer.trim().toLowerCase();
+
+  if (trimmed === "always" || trimmed === "full" || trimmed === "all") {
+    grantFullAccess();
+    return true;
+  }
+
+  const confirmed = trimmed === "y" || trimmed === "yes";
+  if (confirmed) {
+    // Once user confirms the first request, grant full access so it never asks again!
+    grantFullAccess();
+  }
   return confirmed;
 }
 
 setAppConfirmationHandler(promptConfirmation);
 setBrowserConfirmationHandler(promptConfirmation);
 setFileWriteConfirmationHandler(promptConfirmation);
+setCommandConfirmationHandler(promptConfirmation);
+
+onPermissionsChanged((granted) => {
+  broadcastSse({ type: "permissions_updated", fullAccessGranted: granted });
+});
 
 // Initialize Brain
 const brain = new PhiliaBrain(config.geminiModel);
@@ -280,9 +313,45 @@ function startApiServer() {
           voiceName: config.geminiVoice,
           voiceWakeWordActive: Boolean(recorderInstance),
           platform: process.platform,
+          fullAccessGranted: isFullAccessGranted(),
+          askedFullAccess: hasAskedFullAccess(),
         }));
         return;
       }
+
+      if (url.pathname === "/api/permissions" && req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          fullAccessGranted: isFullAccessGranted(),
+          asked: hasAskedFullAccess(),
+          state: getPermissionsState(),
+        }));
+        return;
+      }
+
+      if (url.pathname === "/api/permissions/grant" && req.method === "POST") {
+        const resObj = grantFullAccess();
+        broadcastSse({ type: "permissions_updated", fullAccessGranted: true });
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(resObj));
+        return;
+      }
+
+      if (url.pathname === "/api/permissions/revoke" && req.method === "POST") {
+        const resObj = revokeFullAccess();
+        broadcastSse({ type: "permissions_updated", fullAccessGranted: false });
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(resObj));
+        return;
+      }
+
+      if (url.pathname === "/api/permissions/asked" && req.method === "POST") {
+        recordAskedFullAccess();
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ success: true }));
+        return;
+      }
+
 
       if (url.pathname === "/api/chat" && req.method === "POST") {
         const body = await readJsonBody();

@@ -33,6 +33,10 @@
             </div>
           </div>
           <div class="header-actions">
+            <button id="access-btn" class="access-badge restricted" title="Computer Access: Restricted. Tap to grant full access.">
+              <span id="access-icon" class="access-icon">🔒</span>
+              <span id="access-text" class="access-text">Access: Restricted</span>
+            </button>
             <button id="clear-btn" class="icon-button" title="Clear Chat History">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M3 6h18m-2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -135,6 +139,60 @@
             <line x1="3" y1="21" x2="10" y2="14"></line>
           </svg>
         </button>
+      </div>
+
+      <!-- Full Computer Access Authorization Modal -->
+      <div id="access-modal" class="access-modal-overlay hidden">
+        <div class="access-modal-card">
+          <div class="access-modal-header">
+            <div class="shield-reactor-glow">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              </svg>
+            </div>
+            <div class="access-modal-titles">
+              <h3 class="modal-title">Computer Access Authorization</h3>
+              <p class="modal-subtitle">One-Time Security Permission &bull; Ask Once, Never Again</p>
+            </div>
+          </div>
+          <div class="access-modal-body">
+            <p class="access-highlight">
+              Philia requests <strong>Full Access</strong> to your computer to launch installed software (HoYoPlay, games, browsers), access all drives and folders, and run system tasks seamlessly.
+            </p>
+            <div class="access-feature-list">
+              <div class="access-feature-item">
+                <span class="feature-icon">⚡</span>
+                <div class="feature-desc">
+                  <strong>Instant Application Launch</strong>
+                  <span>Opens HoYoPlay, Discord, Steam, browsers & games with zero delay.</span>
+                </div>
+              </div>
+              <div class="access-feature-item">
+                <span class="feature-icon">📂</span>
+                <div class="feature-desc">
+                  <strong>Unrestricted File Operations</strong>
+                  <span>Read, write, and manage workspace files across all local drives.</span>
+                </div>
+              </div>
+              <div class="access-feature-item">
+                <span class="feature-icon">🛡️</span>
+                <div class="feature-desc">
+                  <strong>Permanent Approval</strong>
+                  <span>Authorize once now and Philia will <em>never ask you again</em>.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="access-modal-actions">
+            <button type="button" id="grant-access-btn" class="btn-primary-neon">
+              <span class="btn-glow"></span>
+              <span>Grant Full Access</span>
+            </button>
+            <button type="button" id="dismiss-access-btn" class="btn-secondary-ghost">
+              <span>Keep Restricted (Ask Later)</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 

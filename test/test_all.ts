@@ -2,10 +2,17 @@ import assert from "node:assert";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
-import { config, isPathDenied, assertPathNotDenied } from "../src/config.js";
+import { isPathDenied, assertPathNotDenied } from "../src/config.js";
 import { searchFiles, getFileMetadata, readFileContent } from "../src/tools/files.js";
 import { writeFileContent, deleteFile, setFileWriteConfirmationHandler } from "../src/tools/filesWrite.js";
 import { browserOpen, browserReadPage, browserClose } from "../src/tools/browser.js";
+import { resolveApplication } from "../src/tools/appResolver.js";
+import { executeCommand } from "../src/tools/system.js";
+import {
+  grantFullAccess,
+  revokeFullAccess,
+  isFullAccessGranted,
+} from "../src/permissions.js";
 import { PhiliaBrain } from "../src/brain.js";
 import { pcmToWav } from "../src/tts.js";
 import { transcribeAudio } from "../src/stt.js";
@@ -24,28 +31,60 @@ async function runTests() {
       await fn();
       console.log("✅ PASS");
       passed++;
-    } catch (err: any) {
-      console.log(`❌ FAIL\n   ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.log(`❌ FAIL\n   ${msg}`);
       failed++;
     }
   }
 
-  // 1. Config & Deny-list guardrails
-  await test("Deny-list blocks C:\\Windows and System32", () => {
+  // 1. Config & Deny-list guardrails (Restricted Mode)
+  await test("Deny-list blocks C:\\Windows and System32 when restricted", () => {
+    revokeFullAccess();
     if (process.platform === "win32") {
-      const winCheck = isPathDenied("C:\\Windows");
+      const winCheck = isPathDenied("C:\\Windows", true);
       assert.strictEqual(winCheck.denied, true, "C:\\Windows should be denied");
 
-      const sys32Check = isPathDenied("C:\\Windows\\System32\\cmd.exe");
+      const sys32Check = isPathDenied("C:\\Windows\\System32\\cmd.exe", true);
       assert.strictEqual(sys32Check.denied, true, "System32 should be denied");
 
       assert.throws(() => {
-        assertPathNotDenied("C:\\Windows\\explorer.exe");
+        assertPathNotDenied("C:\\Windows\\explorer.exe", true);
       }, /Access Denied/);
     } else {
-      const sysCheck = isPathDenied("/etc/passwd");
+      const sysCheck = isPathDenied("/etc/passwd", true);
       assert.strictEqual(sysCheck.denied, true, "/etc should be denied on POSIX");
     }
+  });
+
+  // 2. Full Access grant & persistence ("never again")
+  await test("Permissions: grantFullAccess enables unrestricted computer access", () => {
+    grantFullAccess();
+    assert.strictEqual(isFullAccessGranted(), true);
+    if (process.platform === "win32") {
+      const check = isPathDenied("C:\\Program Files");
+      assert.strictEqual(check.denied, false);
+    }
+  });
+
+  // 3. Fast Application Resolver (HoYoPlay, calc)
+  await test("AppResolver: resolves 'HoYoPlay' launcher/shortcut instantly (< 50ms)", async () => {
+    const start = Date.now();
+    const resolved = await resolveApplication("HoYoPlay");
+    const duration = Date.now() - start;
+    console.log(`\n   [HoYoPlay resolved to]: "${resolved?.targetPath}" in ${duration}ms`);
+    assert.ok(resolved !== null);
+    assert.ok(
+      resolved.targetPath.toLowerCase().includes("hoyo") ||
+      resolved.targetPath.toLowerCase().includes("launcher")
+    );
+  });
+
+  // 4. Command execution tool
+  await test("System: executeCommand runs shell commands with full access", async () => {
+    const res = await executeCommand("echo PhiliaVerified");
+    assert.strictEqual(res.success, true);
+    assert.ok(res.stdout.includes("PhiliaVerified"));
   });
 
   await test("Deny-list permits current workspace path", () => {
@@ -55,7 +94,7 @@ async function runTests() {
     assert.ok(safeCwd);
   });
 
-  // 2. Files tools (Phase 1)
+  // 5. Files tools
   await test("Files: getFileMetadata for package.json", async () => {
     const pkgPath = path.resolve(process.cwd(), "package.json");
     const meta = await getFileMetadata(pkgPath);
@@ -78,7 +117,7 @@ async function runTests() {
     assert.ok(searchResult.matches.some(m => m.endsWith("package.json")));
   });
 
-  // 3. Audio helpers: pcmToWav & STT
+  // 6. Audio helpers
   await test("Audio: pcmToWav generates valid 44-byte RIFF header", () => {
     const dummyPcm = Buffer.alloc(100);
     const wav = pcmToWav(dummyPcm, 24000, 1);
@@ -88,26 +127,23 @@ async function runTests() {
   });
 
   await test("STT: returns empty for pure silence", async () => {
-    // 0.5s of silence
     const silence = Buffer.alloc(16000);
     const text = await transcribeAudio(silence, true);
     assert.strictEqual(text, "", "Silence should transcribe to empty text");
   });
 
-  // 4. FilesWrite & Trash (Phase 2 module)
+  // 7. FilesWrite & Trash
   await test("FilesWrite: writeFileContent and deleteFile with trash", async () => {
     const testDir = path.join(os.tmpdir(), "philia-test-" + Date.now());
     fs.mkdirSync(testDir, { recursive: true });
     const testFile = path.join(testDir, "test-note.txt");
 
-    setFileWriteConfirmationHandler(() => true); // Auto-confirm for unit test
+    setFileWriteConfirmationHandler(() => true);
 
-    // Write file
     const writeRes = await writeFileContent(testFile, "Hello Philia test!");
     assert.strictEqual(writeRes.success, true);
     assert.ok(fs.existsSync(testFile));
 
-    // Delete with trash
     const delRes = await deleteFile(testFile);
     assert.strictEqual(delRes.success, true);
     assert.strictEqual(delRes.movedToRecycleBin, true);
@@ -116,7 +152,7 @@ async function runTests() {
     fs.rmSync(testDir, { recursive: true, force: true });
   });
 
-  // 5. Browser tools
+  // 8. Browser tools
   await test("Browser: browserOpen and browserReadPage on example.com", async () => {
     const summary = await browserOpen("https://example.com");
     assert.ok(summary.includes("Example Domain") || summary.includes("Interactive Elements"));
@@ -127,13 +163,13 @@ async function runTests() {
     await browserClose();
   });
 
-  // 6. Gemini Brain tool calling integration
+  // 9. Gemini Brain tool calling integration
   await test("Brain: processes query and executes getFileMetadata tool", async () => {
     const brain = new PhiliaBrain();
-    const reply = await brain.process("What is the size and modification date of package.json in the current directory?");
-    console.log(`\n   [Brain Reply Excerpt]: ${reply.slice(0, 120)}...`);
-    assert.ok(reply.length > 0, "Brain should produce a response");
-    assert.ok(reply.toLowerCase().includes("package.json") || reply.toLowerCase().includes("bytes") || reply.toLowerCase().includes("size"));
+    const res = await brain.process("What is the size and modification date of package.json in the current directory?");
+    console.log(`\n   [Brain Reply Excerpt]: ${res.reply.slice(0, 120)}...`);
+    assert.ok(res.reply.length > 0, "Brain should produce a response");
+    assert.ok(res.reply.toLowerCase().includes("package.json") || res.reply.toLowerCase().includes("bytes") || res.reply.toLowerCase().includes("size"));
   });
 
   console.log("\n=========================================");

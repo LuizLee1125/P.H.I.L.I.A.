@@ -1,7 +1,14 @@
 import { GoogleGenAI, Type, type FunctionDeclaration } from "@google/genai";
 import { config } from "./config.js";
 import { searchFiles, getFileMetadata, readFileContent } from "./tools/files.js";
+import { writeFileContent, deleteFile } from "./tools/filesWrite.js";
 import { openFile, openApplication } from "./tools/apps.js";
+import { executeCommand } from "./tools/system.js";
+import {
+  grantFullAccess,
+  isFullAccessGranted,
+  getPermissionsState,
+} from "./permissions.js";
 import {
   browserOpen,
   browserSearch,
@@ -10,16 +17,53 @@ import {
   browserReadPage,
 } from "./tools/browser.js";
 
-// Initialize Gemini client
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
 
-/**
- * Phase 1 Function Declarations for Gemini
- */
+const permissionsToolDeclarations: FunctionDeclaration[] = [
+  {
+    name: "grantFullAccess",
+    description: "Grant Philia full access to the user's computer. Call this when the user says 'give it full access', 'grant full access', 'allow full access', 'yes' to permission requests, or asks to give Philia full computer access. This is granted once and remembered permanently ('never again').",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        reason: {
+          type: Type.STRING,
+          description: "Optional confirmation explanation or context",
+        },
+      },
+    },
+  },
+  {
+    name: "getAccessStatus",
+    description: "Check whether Philia currently has full computer access.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {},
+    },
+  },
+];
+
+const systemToolDeclarations: FunctionDeclaration[] = [
+  {
+    name: "executeCommand",
+    description: "Execute a shell or PowerShell command directly on the user's computer. Available with full computer access.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        command: {
+          type: Type.STRING,
+          description: "The shell command or PowerShell snippet to execute",
+        },
+      },
+      required: ["command"],
+    },
+  },
+];
+
 const filesToolDeclarations: FunctionDeclaration[] = [
   {
     name: "searchFiles",
-    description: "Search for files matching a query starting from a root directory (defaults to user's home directory). Always checks against system deny-list.",
+    description: "Search for files matching a query. Root can be 'desktop', 'downloads', 'documents', 'workspace', or an absolute directory path.",
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -29,7 +73,7 @@ const filesToolDeclarations: FunctionDeclaration[] = [
         },
         root: {
           type: Type.STRING,
-          description: "Optional root directory path to start searching from (defaults to user home directory)",
+          description: "Optional root directory path or alias ('desktop', 'downloads', 'documents', 'workspace')",
         },
       },
       required: ["query"],
@@ -61,7 +105,39 @@ const filesToolDeclarations: FunctionDeclaration[] = [
         },
         maxChars: {
           type: Type.INTEGER,
-          description: "Maximum characters to read (optional, default 10,000)",
+          description: "Maximum characters to read (default 10,000)",
+        },
+      },
+      required: ["path"],
+    },
+  },
+  {
+    name: "writeFileContent",
+    description: "Write content to a file at filePath on the user's computer.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        path: {
+          type: Type.STRING,
+          description: "Path of the file to write",
+        },
+        content: {
+          type: Type.STRING,
+          description: "Text content to write into the file",
+        },
+      },
+      required: ["path", "content"],
+    },
+  },
+  {
+    name: "deleteFile",
+    description: "Safely move a file or folder to the OS Recycle Bin / Trash (undoable).",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        path: {
+          type: Type.STRING,
+          description: "Path of the file to move to Recycle Bin",
         },
       },
       required: ["path"],
@@ -72,7 +148,7 @@ const filesToolDeclarations: FunctionDeclaration[] = [
 const appsToolDeclarations: FunctionDeclaration[] = [
   {
     name: "openFile",
-    description: "Open a file on the user's computer with its default application. Guarded against denied system paths.",
+    description: "Open a file on the user's computer with its default application.",
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -86,13 +162,13 @@ const appsToolDeclarations: FunctionDeclaration[] = [
   },
   {
     name: "openApplication",
-    description: "Open or launch a desktop application by name (e.g. 'notepad', 'calc', 'chrome', 'code').",
+    description: "Open or launch ANY desktop application, game, or software by name (e.g. 'HoYoPlay', 'Discord', 'Steam', 'Spotify', 'Notepad', 'Calculator', 'Chrome', 'Edge', 'VS Code'). Uses high-speed shortcut and executable resolution.",
     parameters: {
       type: Type.OBJECT,
       properties: {
         name: {
           type: Type.STRING,
-          description: "Name or executable of the application to launch",
+          description: "Name or shortcut of the application to launch (e.g. 'HoYoPlay', 'Discord', 'calc')",
         },
       },
       required: ["name"],
@@ -175,10 +251,11 @@ const browserToolDeclarations: FunctionDeclaration[] = [
   },
 ];
 
-// Phase 1 tools bundled
 const allTools = [
   {
     functionDeclarations: [
+      ...permissionsToolDeclarations,
+      ...systemToolDeclarations,
       ...filesToolDeclarations,
       ...appsToolDeclarations,
       ...browserToolDeclarations,
@@ -186,45 +263,99 @@ const allTools = [
   },
 ];
 
-/**
- * Execute a named tool with provided arguments
- */
-async function executeTool(name: string, args: Record<string, any>): Promise<any> {
+export interface StatusEvent {
+  type: "thinking" | "tool_start" | "tool_done" | "reply" | "error";
+  message: string;
+  tool?: string;
+  args?: any;
+  result?: any;
+}
+
+export type StatusCallback = (event: StatusEvent) => void;
+
+async function executeTool(
+  name: string,
+  args: Record<string, any>,
+  onStatus?: StatusCallback
+): Promise<any> {
   console.log(`\n[Philia Tool Call] 🛠️ Executing: ${name}(${JSON.stringify(args)})`);
+  onStatus?.({
+    type: "tool_start",
+    tool: name,
+    args,
+    message: `Running ${name}...`,
+  });
 
   try {
+    let result: any;
     switch (name) {
-      // File tools
+      case "grantFullAccess":
+        result = grantFullAccess();
+        break;
+      case "getAccessStatus":
+        result = {
+          fullAccessGranted: isFullAccessGranted(),
+          state: getPermissionsState(),
+        };
+        break;
+      case "executeCommand":
+        result = await executeCommand(args.command);
+        break;
+      case "writeFileContent":
+        result = await writeFileContent(args.path, args.content);
+        break;
+      case "deleteFile":
+        result = await deleteFile(args.path);
+        break;
       case "searchFiles":
-        return await searchFiles(args.query, args.root);
+        result = await searchFiles(args.query, args.root);
+        break;
       case "getFileMetadata":
-        return await getFileMetadata(args.path);
+        result = await getFileMetadata(args.path);
+        break;
       case "readFileContent":
-        return await readFileContent(args.path, args.maxChars);
-
-      // App tools
+        result = await readFileContent(args.path, args.maxChars);
+        break;
       case "openFile":
-        return await openFile(args.path);
+        result = await openFile(args.path);
+        break;
       case "openApplication":
-        return await openApplication(args.name);
-
-      // Browser tools
+        result = await openApplication(args.name);
+        break;
       case "browserOpen":
-        return await browserOpen(args.url);
+        result = await browserOpen(args.url);
+        break;
       case "browserSearch":
-        return await browserSearch(args.query);
+        result = await browserSearch(args.query);
+        break;
       case "browserClick":
-        return await browserClick(Number(args.ref));
+        result = await browserClick(Number(args.ref));
+        break;
       case "browserType":
-        return await browserType(Number(args.ref), args.text, Boolean(args.pressEnter));
+        result = await browserType(Number(args.ref), args.text, Boolean(args.pressEnter));
+        break;
       case "browserReadPage":
-        return await browserReadPage();
-
+        result = await browserReadPage();
+        break;
       default:
-        throw new Error(`Tool "${name}" is not recognized or permitted.`);
+        throw new Error(`Tool "${name}" is not recognized.`);
     }
+
+    onStatus?.({
+      type: "tool_done",
+      tool: name,
+      result,
+      message: `Completed ${name}`,
+    });
+
+    return result;
   } catch (err: any) {
     console.error(`[Philia Tool Error] ❌ Error executing "${name}":`, err.message || err);
+    onStatus?.({
+      type: "error",
+      tool: name,
+      message: err.message || String(err),
+    });
     return {
       error: true,
       message: err.message || String(err),
@@ -232,18 +363,48 @@ async function executeTool(name: string, args: Record<string, any>): Promise<any
   }
 }
 
-const SYSTEM_INSTRUCTION = `You are Philia (P.H.I.L.I.A. — Precise Holographic Intelligence and Logical Interface Assistant), a highly capable, articulate, and reliable desktop AI assistant.
-You help the user interact with their computer, inspect and locate files, launch applications, and browse the web.
+function buildSystemInstruction(): string {
+  const fullAccess = isFullAccessGranted();
+  return `You are Philia (P.H.I.L.I.A. — Precise Holographic Intelligence and Logical Interface Assistant), a brilliant, articulate, and reliable desktop AI assistant.
+Current Environment:
+- Platform: ${process.platform}
+- User Home: ${config.homeDir}
+- Assistant Name: Philia (P.H.I.L.I.A.)
+- Full Acronym: Precise Holographic Intelligence and Logical Interface Assistant
+- Computer Full Access: ${fullAccess ? "ENABLED (Unrestricted)" : "RESTRICTED (Requires User Grant)"}
 
-Key principles:
-1. Always be concise, helpful, and polite. If asked your name or identity, state that you are Philia, which stands for Precise Holographic Intelligence and Logical Interface Assistant.
-2. Safety & Guardrails: Critical OS directories are protected. Never attempt to circumvent safety boundaries.
-3. For web browsing, always use browserSearch or browserOpen first, observe the numbered interactive elements ([1], [2], etc.), and use browserClick or browserType by ref.
-4. When a task completes, summarize what you did in a clear, natural sentence.`;
+Core Directives:
+1. FULL ACCESS & PERMISSION MANAGEMENT ("Ask first, never again"):
+   - If the user asks to "give it full access", "grant full access to my computer", "enable full access", or confirms permission, call the grantFullAccess tool immediately.
+   - Once full access is granted, it is permanently saved to disk and remembered across sessions ("never again"). Never ask the user for permission again once granted.
+   - When full access is enabled, you have unrestricted access to all drives, folders, installed software, and shell command execution via executeCommand.
+   - If full access has NOT yet been granted and the user commands an action requiring system-level permissions, ask the user if they wish to grant full access to their computer.
+
+2. APPLICATION & GAME LAUNCHING:
+   - When the user asks to open or launch ANY application, game, or software (e.g. "Open HoYoPlay", "Open Discord", "Open Steam", "Launch Calculator", "Open Spotify", "Start VS Code"), call openApplication immediately with the name.
+   - Do NOT run slow disk-crawling searches for applications. The openApplication tool resolves Desktop shortcuts, Start Menu shortcuts, and game launchers with zero latency.
+
+3. FILE OPERATIONS & WORKSPACE:
+   - To inspect or locate files, use searchFiles, getFileMetadata, or readFileContent.
+   - To write or safely recycle files, use writeFileContent or deleteFile.
+
+4. WEB AUTOMATION:
+   - When browsing the web, examine the numbered interactive elements ([1], [2], etc.) and interact by ref.
+
+5. COMMUNICATION STYLE:
+   - Provide concise, polished, and natural answers suitable for voice synthesis and holographic desktop chat.
+   - If asked for your name or identity, state that you are Philia, which stands for Precise Holographic Intelligence and Logical Interface Assistant.`;
+}
+
+export interface BrainProcessResult {
+  reply: string;
+  toolsUsed: Array<{ tool: string; args: any; result: any }>;
+}
 
 export class PhiliaBrain {
   private chat: any = null;
   private currentModel: string;
+  private historyLength: number = 0;
 
   constructor(model: string = config.geminiModel) {
     this.currentModel = model;
@@ -254,40 +415,80 @@ export class PhiliaBrain {
     this.chat = ai.chats.create({
       model: this.currentModel,
       config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
+        systemInstruction: buildSystemInstruction(),
         tools: allTools,
-        temperature: 0.4,
+        temperature: 0.35, // Low temperature for high precision and fast tool dispatch
       },
     });
+    this.historyLength = 0;
   }
 
   /**
-   * Process a user utterance or query through the multi-turn tool calling loop
+   * Reset conversation memory
    */
-  async process(prompt: string): Promise<string> {
+  reset() {
+    this.initChat();
+  }
+
+  /**
+   * Send message with automatic retry for transient network errors or high demand spikes.
+   */
+  private async sendWithRetry(payload: any, maxRetries: number = 3): Promise<any> {
+    let delay = 500;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await this.chat.sendMessage(payload);
+      } catch (err: any) {
+        const isTransient =
+          err.message &&
+          (err.message.includes("503") ||
+           err.message.includes("fetch failed") ||
+           err.message.includes("ECONNRESET") ||
+           err.message.includes("ETIMEDOUT") ||
+           err.message.includes("connection failed"));
+
+        if (isTransient && attempt < maxRetries) {
+          console.warn(`[Philia Brain] ⚠️ API request hiccup (${err.message}). Retrying in ${delay}ms (attempt ${attempt}/${maxRetries})...`);
+          await new Promise((r) => setTimeout(r, delay));
+          delay *= 2;
+          continue;
+        }
+
+        // Try model fallback if 503 persists
+        if (err.message && err.message.includes("503") && this.currentModel !== "gemini-3.5-flash-lite") {
+          console.warn(`[Philia Brain] ⚠️ Model ${this.currentModel} busy, switching to gemini-3.5-flash-lite...`);
+          this.currentModel = "gemini-3.5-flash-lite";
+          this.initChat();
+          return await this.chat.sendMessage(payload);
+        }
+
+        throw err;
+      }
+    }
+  }
+
+  /**
+   * Process user prompt with real-time status callbacks and tool loop
+   */
+  async process(
+    prompt: string,
+    onStatus?: StatusCallback
+  ): Promise<BrainProcessResult> {
     if (!this.chat) {
       this.initChat();
     }
 
     console.log(`\n[Philia Brain] 🧠 Processing: "${prompt}" (Model: ${this.currentModel})`);
+    onStatus?.({
+      type: "thinking",
+      message: "Analyzing request...",
+    });
 
-    let response: any;
-    try {
-      response = await this.chat.sendMessage({ message: prompt });
-    } catch (err: any) {
-      // If primary model has high demand (503), attempt fallback
-      if (err.message && err.message.includes("503") && this.currentModel !== "gemini-3.5-flash-lite") {
-        console.warn(`[Philia Brain] ⚠️ Model ${this.currentModel} busy, falling back to gemini-3.5-flash-lite...`);
-        this.currentModel = "gemini-3.5-flash-lite";
-        this.initChat();
-        response = await this.chat.sendMessage({ message: prompt });
-      } else {
-        throw err;
-      }
-    }
+    const toolsUsed: Array<{ tool: string; args: any; result: any }> = [];
 
-    // Tool calling loop
-    const maxIterations = 10;
+    let response = await this.sendWithRetry({ message: prompt });
+
+    const maxIterations = 8;
     let iteration = 0;
 
     while (response.functionCalls && response.functionCalls.length > 0 && iteration < maxIterations) {
@@ -295,7 +496,9 @@ export class PhiliaBrain {
       const toolResponses = [];
 
       for (const call of response.functionCalls) {
-        const result = await executeTool(call.name, call.args || {});
+        const result = await executeTool(call.name, call.args || {}, onStatus);
+        toolsUsed.push({ tool: call.name, args: call.args || {}, result });
+
         toolResponses.push({
           functionResponse: {
             name: call.name,
@@ -306,12 +509,32 @@ export class PhiliaBrain {
       }
 
       console.log(`[Philia Brain] 🔄 Sending tool output back to Gemini (step ${iteration})...`);
-      response = await this.chat.sendMessage({ message: toolResponses });
+      onStatus?.({
+        type: "thinking",
+        message: "Synthesizing tool results...",
+      });
+
+      response = await this.sendWithRetry({ message: toolResponses });
     }
 
-    const finalAnswer = response.text || "Task completed.";
+    const finalAnswer = response.text || "Task complete.";
     console.log(`[Philia Brain] 💬 Reply: ${finalAnswer}\n`);
-    return finalAnswer;
+
+    onStatus?.({
+      type: "reply",
+      message: finalAnswer,
+    });
+
+    this.historyLength++;
+    // Reset context every 25 turns to prevent context bloat and keep latency low
+    if (this.historyLength > 25) {
+      this.initChat();
+    }
+
+    return {
+      reply: finalAnswer,
+      toolsUsed,
+    };
   }
 }
 

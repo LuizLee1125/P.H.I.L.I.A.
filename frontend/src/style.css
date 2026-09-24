@@ -602,3 +602,222 @@ body {
   from { opacity: 0; transform: scale(0.85) translateY(10px); }
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
+
+/* Computer Access Badge */
+.access-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  user-select: none;
+}
+
+.access-badge.restricted {
+  background: rgba(255, 170, 0, 0.12);
+  border: 1px solid rgba(255, 170, 0, 0.4);
+  color: #ffc233;
+}
+
+.access-badge.restricted:hover {
+  background: rgba(255, 170, 0, 0.22);
+  border-color: #ffaa00;
+  box-shadow: 0 0 12px rgba(255, 170, 0, 0.3);
+}
+
+.access-badge.granted {
+  background: rgba(0, 240, 255, 0.12);
+  border: 1px solid rgba(0, 240, 255, 0.5);
+  color: var(--accent-cyan);
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
+}
+
+.access-badge.granted:hover {
+  background: rgba(0, 240, 255, 0.2);
+  box-shadow: 0 0 16px rgba(0, 240, 255, 0.4);
+}
+
+.access-icon {
+  font-size: 11px;
+}
+
+/* Full Access Authorization Modal */
+.access-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 8, 16, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+  animation: fadeInModal 0.2s ease-out;
+}
+
+.access-modal-overlay.hidden {
+  display: none !important;
+}
+
+.access-modal-card {
+  width: 460px;
+  max-width: 95vw;
+  background: linear-gradient(155deg, rgba(12, 26, 46, 0.95), rgba(5, 14, 25, 0.98));
+  border: 1px solid rgba(0, 240, 255, 0.35);
+  border-radius: 18px;
+  padding: 24px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.75), 0 0 32px rgba(0, 240, 255, 0.18);
+  animation: scaleUpModal 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.access-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid rgba(0, 240, 255, 0.15);
+  padding-bottom: 14px;
+}
+
+.shield-reactor-glow {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(0, 240, 255, 0.12);
+  border: 1px solid var(--accent-cyan);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-cyan);
+  box-shadow: 0 0 18px rgba(0, 240, 255, 0.35);
+}
+
+.access-modal-titles .modal-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #ffffff;
+  letter-spacing: 0.3px;
+}
+
+.access-modal-titles .modal-subtitle {
+  margin: 3px 0 0 0;
+  font-size: 11px;
+  color: var(--accent-cyan);
+  letter-spacing: 0.2px;
+  text-transform: uppercase;
+}
+
+.access-modal-body {
+  font-size: 13px;
+  line-height: 1.55;
+  color: #c9d7e8;
+  margin-bottom: 20px;
+}
+
+.access-highlight {
+  margin: 0 0 16px 0;
+  color: #e6f0fa;
+}
+
+.access-highlight strong {
+  color: var(--accent-cyan);
+}
+
+.access-feature-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.access-feature-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.access-feature-item .feature-icon {
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.access-feature-item .feature-desc {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.access-feature-item .feature-desc strong {
+  color: #ffffff;
+}
+
+.access-feature-item .feature-desc span {
+  color: var(--text-muted);
+}
+
+.access-modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.btn-primary-neon {
+  position: relative;
+  background: var(--accent-cyan);
+  color: #030a14;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 0 16px rgba(0, 240, 255, 0.4);
+  transition: all 0.2s ease;
+  overflow: hidden;
+}
+
+.btn-primary-neon:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 24px rgba(0, 240, 255, 0.65);
+  background: #26f4ff;
+}
+
+.btn-secondary-ghost {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-secondary-ghost:hover {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+@keyframes fadeInModal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleUpModal {
+  from { opacity: 0; transform: scale(0.94) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+

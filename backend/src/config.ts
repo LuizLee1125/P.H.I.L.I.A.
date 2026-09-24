@@ -71,6 +71,8 @@ function getExtraDenyList(): string[] {
     .filter((p) => p.length > 0);
 }
 
+import { isFullAccessGranted } from "./permissions.js";
+
 // Combine and deduplicate deny-list
 const rawDenyList = Array.from(new Set([...getPlatformDenyList(), ...getExtraDenyList()]));
 
@@ -78,8 +80,9 @@ export const denyList = rawDenyList.map((dir) => path.resolve(dir));
 
 /**
  * Check whether a target path falls inside any directory in the deny-list.
+ * If user has granted Full Access, restrictions are bypassed.
  */
-export function isPathDenied(targetPath: string): { denied: boolean; matchedPattern?: string; resolvedPath: string } {
+export function isPathDenied(targetPath: string, bypassFullAccessCheck: boolean = false): { denied: boolean; matchedPattern?: string; resolvedPath: string } {
   const resolved = path.resolve(targetPath);
   let canonicalPath = resolved;
 
@@ -89,6 +92,14 @@ export function isPathDenied(targetPath: string): { denied: boolean; matchedPatt
     }
   } catch {
     canonicalPath = resolved;
+  }
+
+  // When Full Access is granted, allow unrestricted system access
+  if (!bypassFullAccessCheck && isFullAccessGranted()) {
+    return {
+      denied: false,
+      resolvedPath: canonicalPath,
+    };
   }
 
   const isWin = process.platform === "win32";
@@ -118,8 +129,8 @@ export function isPathDenied(targetPath: string): { denied: boolean; matchedPatt
 /**
  * Throws a descriptive error if the path is in the deny-list.
  */
-export function assertPathNotDenied(targetPath: string): string {
-  const check = isPathDenied(targetPath);
+export function assertPathNotDenied(targetPath: string, bypassFullAccessCheck: boolean = false): string {
+  const check = isPathDenied(targetPath, bypassFullAccessCheck);
   if (check.denied) {
     const errorMsg = `Access Denied: Path "${targetPath}" is protected under system deny-list rule (${check.matchedPattern}). Refusing operation.`;
     console.error(`[Guardrail] ❌ ${errorMsg}`);
@@ -140,3 +151,4 @@ export const config = {
   isPathDenied,
   assertPathNotDenied,
 };
+

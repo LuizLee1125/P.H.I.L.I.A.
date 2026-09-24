@@ -9,6 +9,8 @@ import { browserClose } from "./tools/browser.js";
 import { setAppConfirmationHandler } from "./tools/apps.js";
 import { setBrowserConfirmationHandler } from "./tools/browser.js";
 import { setFileWriteConfirmationHandler } from "./tools/filesWrite.js";
+import { setCommandConfirmationHandler } from "./tools/system.js";
+import { isFullAccessGranted, grantFullAccess } from "./permissions.js";
 
 // Global readline interface for CLI commands & guardrail confirmations
 const rl = readline.createInterface({
@@ -22,14 +24,22 @@ function askQuestion(query: string): Promise<string> {
 
 // Wire guardrail confirmation prompts to interactive terminal
 async function promptConfirmation(actionDescription: string): Promise<boolean> {
-  console.log(`\n⚠️  [GUARDRAIL CONFIRMATION REQUIRED]`);
+  if (isFullAccessGranted()) {
+    console.log(`[Full Access] 🔓 Auto-permitting action: ${actionDescription}`);
+    return true;
+  }
+
+  console.log(`\n⚠️  [COMPUTER ACCESS PERMISSION REQUESTED]`);
   console.log(`Action: ${actionDescription}`);
-  const answer = await askQuestion(`Proceed with this action? (y/N): `);
-  const confirmed = answer.trim().toLowerCase() === "y" || answer.trim().toLowerCase() === "yes";
+  const answer = await askQuestion(`Grant Philia Full Access to proceed? (y/N/always): `);
+  const trimmed = answer.trim().toLowerCase();
+  if (trimmed === "always" || trimmed === "full") {
+    grantFullAccess();
+    return true;
+  }
+  const confirmed = trimmed === "y" || trimmed === "yes";
   if (confirmed) {
-    console.log(`[Guardrail] Action confirmed by user.\n`);
-  } else {
-    console.log(`[Guardrail] Action rejected by user.\n`);
+    grantFullAccess();
   }
   return confirmed;
 }
@@ -37,6 +47,8 @@ async function promptConfirmation(actionDescription: string): Promise<boolean> {
 setAppConfirmationHandler(promptConfirmation);
 setBrowserConfirmationHandler(promptConfirmation);
 setFileWriteConfirmationHandler(promptConfirmation);
+setCommandConfirmationHandler(promptConfirmation);
+
 
 // Initialize Brain
 const brain = new PhiliaBrain(config.geminiModel);

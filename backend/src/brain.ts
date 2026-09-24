@@ -1,7 +1,14 @@
 import { GoogleGenAI, Type, type FunctionDeclaration } from "@google/genai";
 import { config } from "./config.js";
 import { searchFiles, getFileMetadata, readFileContent } from "./tools/files.js";
+import { writeFileContent, deleteFile } from "./tools/filesWrite.js";
 import { openFile, openApplication } from "./tools/apps.js";
+import { executeCommand } from "./tools/system.js";
+import {
+  grantFullAccess,
+  isFullAccessGranted,
+  getPermissionsState,
+} from "./permissions.js";
 import {
   browserOpen,
   browserSearch,
@@ -11,6 +18,47 @@ import {
 } from "./tools/browser.js";
 
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
+
+const permissionsToolDeclarations: FunctionDeclaration[] = [
+  {
+    name: "grantFullAccess",
+    description: "Grant Philia full access to the user's computer. Call this when the user says 'give it full access', 'grant full access', 'allow full access', 'yes' to permission requests, or asks to give Philia full computer access. This is granted once and remembered permanently ('never again').",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        reason: {
+          type: Type.STRING,
+          description: "Optional confirmation explanation or context",
+        },
+      },
+    },
+  },
+  {
+    name: "getAccessStatus",
+    description: "Check whether Philia currently has full computer access.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {},
+    },
+  },
+];
+
+const systemToolDeclarations: FunctionDeclaration[] = [
+  {
+    name: "executeCommand",
+    description: "Execute a shell or PowerShell command directly on the user's computer. Available with full computer access.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        command: {
+          type: Type.STRING,
+          description: "The shell command or PowerShell snippet to execute",
+        },
+      },
+      required: ["command"],
+    },
+  },
+];
 
 const filesToolDeclarations: FunctionDeclaration[] = [
   {
@@ -63,12 +111,44 @@ const filesToolDeclarations: FunctionDeclaration[] = [
       required: ["path"],
     },
   },
+  {
+    name: "writeFileContent",
+    description: "Write content to a file at filePath on the user's computer.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        path: {
+          type: Type.STRING,
+          description: "Path of the file to write",
+        },
+        content: {
+          type: Type.STRING,
+          description: "Text content to write into the file",
+        },
+      },
+      required: ["path", "content"],
+    },
+  },
+  {
+    name: "deleteFile",
+    description: "Safely move a file or folder to the OS Recycle Bin / Trash (undoable).",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        path: {
+          type: Type.STRING,
+          description: "Path of the file to move to Recycle Bin",
+        },
+      },
+      required: ["path"],
+    },
+  },
 ];
 
 const appsToolDeclarations: FunctionDeclaration[] = [
   {
     name: "openFile",
-    description: "Open a file on the user's computer with its default application. Guarded against denied system paths.",
+    description: "Open a file on the user's computer with its default application.",
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -82,13 +162,13 @@ const appsToolDeclarations: FunctionDeclaration[] = [
   },
   {
     name: "openApplication",
-    description: "Open or launch a desktop application by name (e.g. 'notepad', 'calc', 'chrome', 'edge', 'code').",
+    description: "Open or launch ANY desktop application, game, or software by name (e.g. 'HoYoPlay', 'Discord', 'Steam', 'Spotify', 'Notepad', 'Calculator', 'Chrome', 'Edge', 'VS Code'). Uses high-speed shortcut and executable resolution.",
     parameters: {
       type: Type.OBJECT,
       properties: {
         name: {
           type: Type.STRING,
-          description: "Name or executable of the application to launch",
+          description: "Name or shortcut of the application to launch (e.g. 'HoYoPlay', 'Discord', 'calc')",
         },
       },
       required: ["name"],
@@ -174,12 +254,15 @@ const browserToolDeclarations: FunctionDeclaration[] = [
 const allTools = [
   {
     functionDeclarations: [
+      ...permissionsToolDeclarations,
+      ...systemToolDeclarations,
       ...filesToolDeclarations,
       ...appsToolDeclarations,
       ...browserToolDeclarations,
     ],
   },
 ];
+
 
 export interface StatusEvent {
   type: "thinking" | "tool_start" | "tool_done" | "reply" | "error";
@@ -207,6 +290,24 @@ async function executeTool(
   try {
     let result: any;
     switch (name) {
+      case "grantFullAccess":
+        result = grantFullAccess();
+        break;
+      case "getAccessStatus":
+        result = {
+          fullAccessGranted: isFullAccessGranted(),
+          state: getPermissionsState(),
+        };
+        break;
+      case "executeCommand":
+        result = await executeCommand(args.command);
+        break;
+      case "writeFileContent":
+        result = await writeFileContent(args.path, args.content);
+        break;
+      case "deleteFile":
+        result = await deleteFile(args.path);
+        break;
       case "searchFiles":
         result = await searchFiles(args.query, args.root);
         break;
@@ -264,22 +365,38 @@ async function executeTool(
 }
 
 function buildSystemInstruction(): string {
+  const fullAccess = isFullAccessGranted();
   return `You are Philia (P.H.I.L.I.A. — Precise Holographic Intelligence and Logical Interface Assistant), a brilliant, articulate, and reliable desktop AI assistant.
 Current Environment:
 - Platform: ${process.platform}
 - User Home: ${config.homeDir}
 - Assistant Name: Philia (P.H.I.L.I.A.)
 - Full Acronym: Precise Holographic Intelligence and Logical Interface Assistant
+- Computer Full Access: ${fullAccess ? "ENABLED (Unrestricted)" : "RESTRICTED (Requires User Grant)"}
 
-Behavior Guidelines:
-1. Provide concise, polished, and natural answers suitable for voice synthesis and desktop chat.
-2. If asked for your name or identity, state that you are Philia, which stands for Precise Holographic Intelligence and Logical Interface Assistant.
-3. If asked to inspect or locate files, use searchFiles, getFileMetadata, or readFileContent.
-4. If asked to open apps or web pages, use openApplication or browser tools.
-5. When browsing the web, examine the numbered interactive elements ([1], [2], etc.) and interact by ref.
-6. System guardrails strictly protect system files. Respect security constraints.
-7. When summarizing actions, be direct and helpful.`;
+Core Directives:
+1. FULL ACCESS & PERMISSION MANAGEMENT ("Ask first, never again"):
+   - If the user asks to "give it full access", "grant full access to my computer", "enable full access", or confirms permission, call the grantFullAccess tool immediately.
+   - Once full access is granted, it is permanently saved to disk and remembered across sessions ("never again"). Never ask the user for permission again once granted.
+   - When full access is enabled, you have unrestricted access to all drives, folders, installed software, and shell command execution via executeCommand.
+   - If full access has NOT yet been granted and the user commands an action requiring system-level permissions, ask the user if they wish to grant full access to their computer.
+
+2. APPLICATION & GAME LAUNCHING:
+   - When the user asks to open or launch ANY application, game, or software (e.g. "Open HoYoPlay", "Open Discord", "Open Steam", "Launch Calculator", "Open Spotify", "Start VS Code"), call openApplication immediately with the name.
+   - Do NOT run slow disk-crawling searches for applications. The openApplication tool resolves Desktop shortcuts, Start Menu shortcuts, and game launchers with zero latency.
+
+3. FILE OPERATIONS & WORKSPACE:
+   - To inspect or locate files, use searchFiles, getFileMetadata, or readFileContent.
+   - To write or safely recycle files, use writeFileContent or deleteFile.
+
+4. WEB AUTOMATION:
+   - When browsing the web, examine the numbered interactive elements ([1], [2], etc.) and interact by ref.
+
+5. COMMUNICATION STYLE:
+   - Provide concise, polished, and natural answers suitable for voice synthesis and holographic desktop chat.
+   - If asked for your name or identity, state that you are Philia, which stands for Precise Holographic Intelligence and Logical Interface Assistant.`;
 }
+
 
 export interface BrainProcessResult {
   reply: string;

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import trash from "trash";
 import { assertPathNotDenied } from "../config.js";
+import { isFullAccessGranted } from "../permissions.js";
 
 export type WriteConfirmationHandler = (actionDescription: string) => Promise<boolean> | boolean;
 
@@ -34,13 +35,15 @@ export async function writeFileContent(filePath: string, content: string): Promi
   const actionDescription = `Write ${Buffer.byteLength(content, "utf-8")} bytes to file "${safePath}"`;
   console.log(`[FilesWrite] ⚠️ Proposed action: ${actionDescription}`);
 
-  const confirmed = await defaultWriteConfirmationHandler(actionDescription);
-  if (!confirmed) {
-    return {
-      success: false,
-      path: safePath,
-      message: `Operation cancelled: User declined confirmation to write file "${safePath}".`,
-    };
+  if (!isFullAccessGranted()) {
+    const confirmed = await defaultWriteConfirmationHandler(actionDescription);
+    if (!confirmed) {
+      return {
+        success: false,
+        path: safePath,
+        message: `Operation cancelled: User declined confirmation to write file "${safePath}".`,
+      };
+    }
   }
 
   const parentDir = path.dirname(safePath);
@@ -68,19 +71,22 @@ export async function deleteFile(filePath: string): Promise<FileDeleteResult> {
   const actionDescription = `Move "${safePath}" to OS Recycle Bin/Trash (safe delete, undoable)`;
   console.log(`[FilesWrite] ⚠️ Proposed action: ${actionDescription}`);
 
-  const confirmed = await defaultWriteConfirmationHandler(actionDescription);
-  if (!confirmed) {
-    return {
-      success: false,
-      path: safePath,
-      movedToRecycleBin: false,
-      message: `Operation cancelled: User declined confirmation to delete "${safePath}".`,
-    };
+  if (!isFullAccessGranted()) {
+    const confirmed = await defaultWriteConfirmationHandler(actionDescription);
+    if (!confirmed) {
+      return {
+        success: false,
+        path: safePath,
+        movedToRecycleBin: false,
+        message: `Operation cancelled: User declined confirmation to delete "${safePath}".`,
+      };
+    }
   }
 
   console.log(`[FilesWrite] 🗑️ Moving to recycle bin via trash: "${safePath}"`);
   await trash(safePath);
   console.log(`[FilesWrite] ✅ Item moved to recycle bin: "${safePath}"`);
+
 
   return {
     success: true,

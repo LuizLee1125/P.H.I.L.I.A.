@@ -93,8 +93,18 @@ async function testE2e() {
   assert.ok(chatRes.data.reply, "Should return a reply");
   console.log("   Philia Reply:", chatRes.data.reply.slice(0, 100));
 
-  // 3. Test /api/reset
-  console.log("3. Testing POST /api/reset...");
+  // 3. Test /api/permissions endpoints
+  console.log("3. Testing GET & POST /api/permissions...");
+  const permGet = await makeRequest("/api/permissions");
+  assert.strictEqual(permGet.status, 200);
+  assert.ok("fullAccessGranted" in permGet.data);
+
+  const permGrant = await makeRequest("/api/permissions/grant", "POST");
+  assert.strictEqual(permGrant.status, 200);
+  assert.strictEqual(permGrant.data.success, true);
+
+  // 4. Test /api/reset
+  console.log("4. Testing POST /api/reset...");
   const resetRes = await makeRequest("/api/reset", "POST");
   assert.strictEqual(resetRes.status, 200);
   assert.strictEqual(resetRes.data.success, true);

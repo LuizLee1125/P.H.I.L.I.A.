@@ -6,7 +6,6 @@ const API_BASE = "http://127.0.0.1:4172";
 const chatMessages = document.getElementById("chat-messages") as HTMLElement;
 const chatForm = document.getElementById("chat-form") as HTMLFormElement;
 const chatInput = document.getElementById("chat-input") as HTMLInputElement;
-const sendBtn = document.getElementById("send-btn") as HTMLButtonElement;
 const voiceBtn = document.getElementById("voice-btn") as HTMLButtonElement;
 const micIcon = document.getElementById("mic-icon") as unknown as SVGElement;
 const waveformVisualizer = document.getElementById("waveform-visualizer") as HTMLElement;
@@ -17,6 +16,14 @@ const activityBanner = document.getElementById("activity-banner") as HTMLElement
 const activityText = document.getElementById("activity-text") as HTMLElement;
 const clearBtn = document.getElementById("clear-btn") as HTMLButtonElement;
 const ttsToggle = document.getElementById("tts-toggle") as HTMLButtonElement;
+
+// Computer Access Elements
+const accessBtn = document.getElementById("access-btn") as HTMLButtonElement;
+const accessIcon = document.getElementById("access-icon") as HTMLElement;
+const accessText = document.getElementById("access-text") as HTMLElement;
+const accessModal = document.getElementById("access-modal") as HTMLElement;
+const grantAccessBtn = document.getElementById("grant-access-btn") as HTMLButtonElement;
+const dismissAccessBtn = document.getElementById("dismiss-access-btn") as HTMLButtonElement;
 
 // Minimized widget elements
 const mainWindow = document.querySelector(".main-window") as HTMLElement;
@@ -29,6 +36,45 @@ const miniStatus = document.getElementById("mini-status") as HTMLElement;
 
 let isVoiceActive = true;
 let isBusy = false;
+let isFullAccessGranted = false;
+
+function updateAccessBadge(granted: boolean) {
+  isFullAccessGranted = granted;
+  if (accessBtn && accessIcon && accessText) {
+    if (granted) {
+      accessBtn.className = "access-badge granted";
+      accessBtn.title = "Full Computer Access: Active (Permission granted, will never ask again)";
+      accessIcon.textContent = "🔓";
+      accessText.textContent = "Full Access";
+      hideAccessModal();
+    } else {
+      accessBtn.className = "access-badge restricted";
+      accessBtn.title = "Computer Access: Restricted. Tap to grant full access.";
+      accessIcon.textContent = "🔒";
+      accessText.textContent = "Access: Restricted";
+    }
+  }
+}
+
+function showAccessModal() {
+  if (accessModal) accessModal.classList.remove("hidden");
+}
+
+function hideAccessModal() {
+  if (accessModal) accessModal.classList.add("hidden");
+}
+
+async function requestGrantAccess() {
+  try {
+    const res = await fetch(`${API_BASE}/api/permissions/grant`, { method: "POST" });
+    if (res.ok) {
+      updateAccessBadge(true);
+      appendAssistantMessage("Full computer access has been granted to Philia. All restrictions are lifted and you will never be asked again.");
+    }
+  } catch (err) {
+    console.error("Failed to grant full access:", err);
+  }
+}
 
 // Connect to Server-Sent Events (SSE) for live status & wake-word updates
 function setupEventStream() {
@@ -54,10 +100,28 @@ function setupEventStream() {
   };
 }
 
-function handleServerEvent(event: any) {
+interface ServerEventData {
+  type: string;
+  message?: string;
+  tool?: string;
+  fullAccessGranted?: boolean;
+  fullAccessRequired?: boolean;
+}
+
+function handleServerEvent(event: ServerEventData) {
   switch (event.type) {
     case "connected":
       updateStatus("online", "Online");
+      break;
+
+    case "permissions_updated":
+      updateAccessBadge(Boolean(event.fullAccessGranted));
+      break;
+
+    case "confirmation_required":
+      if (!isFullAccessGranted) {
+        showAccessModal();
+      }
       break;
 
     case "wake_word":
@@ -89,14 +153,13 @@ function handleServerEvent(event: any) {
       break;
 
     case "user_command":
-      // If user commanded via voice, ensure it appears in the chatbox
-      appendUserMessage(event.message);
+      if (event.message) appendUserMessage(event.message);
       break;
 
     case "reply":
       hideActivity();
       setVoiceState("idle", "Tap to Speak");
-      appendAssistantMessage(event.message);
+      if (event.message) appendAssistantMessage(event.message);
       break;
 
     case "idle":
@@ -144,9 +207,7 @@ function setVoiceState(state: "idle" | "listening" | "busy", label: string) {
   }
 }
 
-// Append user message bubble to chat
 function appendUserMessage(text: string) {
-  // Avoid duplicate message if already showing
   const lastMsg = chatMessages.lastElementChild;
   if (lastMsg && lastMsg.classList.contains("user-message") && lastMsg.textContent?.includes(text)) {
     return;
@@ -164,9 +225,13 @@ function appendUserMessage(text: string) {
   scrollToBottom();
 }
 
-// Append assistant message bubble with formatting and tool chips
-function appendAssistantMessage(text: string, toolsUsed: any[] = []) {
-  // Check if identical assistant reply just arrived
+interface ToolExecutionInfo {
+  tool: string;
+  args?: Record<string, unknown>;
+  result?: unknown;
+}
+
+function appendAssistantMessage(text: string, toolsUsed: ToolExecutionInfo[] = []) {
   const lastMsg = chatMessages.lastElementChild;
   if (lastMsg && lastMsg.classList.contains("assistant-message") && lastMsg.textContent === text) {
     return;
@@ -184,14 +249,12 @@ function appendAssistantMessage(text: string, toolsUsed: any[] = []) {
   const contentDiv = document.createElement("div");
   contentDiv.className = "msg-content";
 
-  // Simple clean formatting (bold, newlines)
   const formatted = text
     .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\n/g, "<br>");
   contentDiv.innerHTML = `<p>${formatted}</p>`;
 
-  // Add tool execution chips if present
   if (toolsUsed && toolsUsed.length > 0) {
     for (const tool of toolsUsed) {
       const chip = document.createElement("div");
@@ -211,7 +274,6 @@ function scrollToBottom() {
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// Send chat command
 async function sendCommand(prompt: string) {
   if (!prompt || prompt.trim().length === 0 || isBusy) return;
 
@@ -238,7 +300,7 @@ async function sendCommand(prompt: string) {
     if (data.reply) {
       appendAssistantMessage(data.reply, data.toolsUsed);
     }
-  } catch (err: any) {
+  } catch {
     hideActivity();
     setVoiceState("idle", "Tap to Speak");
     appendAssistantMessage("Could not connect to Philia backend. Please ensure the backend is running.");
@@ -247,7 +309,6 @@ async function sendCommand(prompt: string) {
   }
 }
 
-// Trigger mic recording on demand
 async function triggerVoiceListen() {
   if (isBusy) return;
   isBusy = true;
@@ -272,7 +333,7 @@ async function triggerVoiceListen() {
     if (data.reply) {
       appendAssistantMessage(data.reply, data.toolsUsed);
     }
-  } catch (err: any) {
+  } catch {
     hideActivity();
     setVoiceState("idle", "Tap to Speak");
     appendAssistantMessage("Microphone capture error. Ensure your microphone is plugged in.");
@@ -296,7 +357,6 @@ miniVoiceBtn.addEventListener("click", (e) => {
   triggerVoiceListen();
 });
 
-// Clear conversation
 clearBtn.addEventListener("click", async () => {
   chatMessages.innerHTML = `
     <div class="message assistant-message initial-message">
@@ -307,14 +367,34 @@ clearBtn.addEventListener("click", async () => {
   await fetch(`${API_BASE}/api/reset`, { method: "POST" }).catch(() => {});
 });
 
-// Toggle voice speech playback
 ttsToggle.addEventListener("click", () => {
   isVoiceActive = !isVoiceActive;
   ttsToggle.classList.toggle("active", isVoiceActive);
   ttsToggle.title = isVoiceActive ? "Voice Speech Enabled" : "Voice Speech Muted";
 });
 
-// Minimized widget toggling
+// Access button and modal listeners
+if (accessBtn) {
+  accessBtn.addEventListener("click", () => {
+    if (!isFullAccessGranted) {
+      showAccessModal();
+    }
+  });
+}
+
+if (grantAccessBtn) {
+  grantAccessBtn.addEventListener("click", () => {
+    requestGrantAccess();
+  });
+}
+
+if (dismissAccessBtn) {
+  dismissAccessBtn.addEventListener("click", async () => {
+    hideAccessModal();
+    await fetch(`${API_BASE}/api/permissions/asked`, { method: "POST" }).catch(() => {});
+  });
+}
+
 minimizeBtn.addEventListener("click", () => {
   mainWindow.classList.add("hidden");
   minimizedWidget.classList.remove("hidden");
@@ -330,19 +410,32 @@ pillRestoreBtn.addEventListener("click", () => {
   minimizedWidget.classList.add("hidden");
 });
 
-// Check server status & start event stream on load
 async function init() {
   try {
     const res = await fetch(`${API_BASE}/api/status`);
     if (res.ok) {
       const data = await res.json();
       updateStatus("online", `Online (${data.model})`);
+      if (typeof data.fullAccessGranted === "boolean") {
+        updateAccessBadge(data.fullAccessGranted);
+      }
     } else {
       updateStatus("offline", "Backend Offline");
     }
   } catch {
     updateStatus("offline", "Connecting...");
   }
+
+  try {
+    const permRes = await fetch(`${API_BASE}/api/permissions`);
+    if (permRes.ok) {
+      const perm = await permRes.json();
+      updateAccessBadge(perm.fullAccessGranted);
+      if (!perm.fullAccessGranted && !perm.asked) {
+        showAccessModal();
+      }
+    }
+  } catch {}
 
   setupEventStream();
 }

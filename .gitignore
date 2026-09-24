@@ -22,3 +22,4 @@ yarn-error.log*
 temp_audio/
 *.pcm
 *.wav
+.philia-permissions.json

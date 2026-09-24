@@ -66,11 +66,14 @@ const rawDenyList = Array.from(new Set([...getPlatformDenyList(), ...getExtraDen
 
 export const denyList = rawDenyList.map((dir) => path.resolve(dir));
 
+import { isFullAccessGranted } from "./permissions.js";
+
 /**
  * Check whether a target path falls inside any directory in the deny-list.
  * Handles symlinks, case-sensitivity by OS, and directory boundaries.
+ * If user has granted Full Access, restrictions are bypassed.
  */
-export function isPathDenied(targetPath: string): { denied: boolean; matchedPattern?: string; resolvedPath: string } {
+export function isPathDenied(targetPath: string, bypassFullAccessCheck: boolean = false): { denied: boolean; matchedPattern?: string; resolvedPath: string } {
   const resolved = path.resolve(targetPath);
   let canonicalPath = resolved;
 
@@ -81,6 +84,14 @@ export function isPathDenied(targetPath: string): { denied: boolean; matchedPatt
   } catch {
     // If path does not exist yet (e.g. for write), check resolved path
     canonicalPath = resolved;
+  }
+
+  // When Full Access is granted, allow unrestricted system access
+  if (!bypassFullAccessCheck && isFullAccessGranted()) {
+    return {
+      denied: false,
+      resolvedPath: canonicalPath,
+    };
   }
 
   const isWin = process.platform === "win32";
@@ -112,8 +123,8 @@ export function isPathDenied(targetPath: string): { denied: boolean; matchedPatt
  * Throws a descriptive error if the path is in the deny-list.
  * Returns the resolved canonical path if allowed.
  */
-export function assertPathNotDenied(targetPath: string): string {
-  const check = isPathDenied(targetPath);
+export function assertPathNotDenied(targetPath: string, bypassFullAccessCheck: boolean = false): string {
+  const check = isPathDenied(targetPath, bypassFullAccessCheck);
   if (check.denied) {
     const errorMsg = `Access Denied: Path "${targetPath}" is protected under system deny-list rule (${check.matchedPattern}). Refusing operation.`;
     console.error(`[Guardrail] ❌ ${errorMsg}`);
@@ -133,3 +144,4 @@ export const config = {
   isPathDenied,
   assertPathNotDenied,
 };
+
