@@ -2,9 +2,26 @@ import dotenv from "dotenv";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
+import { fileURLToPath } from "node:url";
 
-// Load environment variables from .env
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Search for .env in current directory, parent directory, and workspace root
+const envPaths = [
+  path.resolve(process.cwd(), ".env"),
+  path.resolve(process.cwd(), "..", ".env"),
+  path.resolve(__dirname, "..", ".env"),
+  path.resolve(__dirname, "..", "..", ".env"),
+];
+
+for (const envPath of envPaths) {
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath });
+    break;
+  }
+}
+dotenv.config(); // fallback default
 
 /**
  * Base deny-list by platform as specified in the implementation plan.
@@ -17,7 +34,6 @@ function getPlatformDenyList(): string[] {
       "C:\\Windows",
       "C:\\Program Files",
       "C:\\Program Files (x86)",
-      // Cover common system root drive variations if installed elsewhere
       ...(process.env.SystemRoot ? [process.env.SystemRoot] : []),
       ...(process.env["ProgramFiles"] ? [process.env["ProgramFiles"]] : []),
       ...(process.env["ProgramFiles(x86)"] ? [process.env["ProgramFiles(x86)"]] : []),
@@ -54,23 +70,21 @@ function getPlatformDenyList(): string[] {
 function getExtraDenyList(): string[] {
   const extra = process.env.EXTRA_DENY_LIST;
   if (!extra) return [];
-  // Split on semicolon (standard on Windows) or colon or comma
   return extra
     .split(/[;:,]/)
     .map((p) => p.trim())
     .filter((p) => p.length > 0);
 }
 
+import { isFullAccessGranted } from "./permissions.js";
+
 // Combine and deduplicate deny-list
 const rawDenyList = Array.from(new Set([...getPlatformDenyList(), ...getExtraDenyList()]));
 
 export const denyList = rawDenyList.map((dir) => path.resolve(dir));
 
-import { isFullAccessGranted } from "./permissions.js";
-
 /**
  * Check whether a target path falls inside any directory in the deny-list.
- * Handles symlinks, case-sensitivity by OS, and directory boundaries.
  * If user has granted Full Access, restrictions are bypassed.
  */
 export function isPathDenied(targetPath: string, bypassFullAccessCheck: boolean = false): { denied: boolean; matchedPattern?: string; resolvedPath: string } {
@@ -82,7 +96,6 @@ export function isPathDenied(targetPath: string, bypassFullAccessCheck: boolean 
       canonicalPath = fs.realpathSync(resolved);
     }
   } catch {
-    // If path does not exist yet (e.g. for write), check resolved path
     canonicalPath = resolved;
   }
 
@@ -100,7 +113,6 @@ export function isPathDenied(targetPath: string, bypassFullAccessCheck: boolean 
   for (const deniedDir of denyList) {
     const normalizedDenied = isWin ? deniedDir.toLowerCase() : deniedDir;
 
-    // Check exact match or subpath with separator boundary
     if (
       normalizedCanonical === normalizedDenied ||
       normalizedCanonical.startsWith(normalizedDenied + path.sep.toLowerCase())
@@ -121,7 +133,6 @@ export function isPathDenied(targetPath: string, bypassFullAccessCheck: boolean 
 
 /**
  * Throws a descriptive error if the path is in the deny-list.
- * Returns the resolved canonical path if allowed.
  */
 export function assertPathNotDenied(targetPath: string, bypassFullAccessCheck: boolean = false): string {
   const check = isPathDenied(targetPath, bypassFullAccessCheck);
@@ -134,6 +145,7 @@ export function assertPathNotDenied(targetPath: string, bypassFullAccessCheck: b
 }
 
 export const config = {
+  port: parseInt(process.env.PORT || "4172", 10),
   geminiApiKey: process.env.GEMINI_API_KEY || "",
   geminiModel: process.env.GEMINI_MODEL || "gemini-3.5-flash-lite",
   geminiVoice: process.env.GEMINI_VOICE || "Fenrir",

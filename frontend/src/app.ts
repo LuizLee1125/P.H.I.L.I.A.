@@ -410,7 +410,7 @@ pillRestoreBtn.addEventListener("click", () => {
   minimizedWidget.classList.add("hidden");
 });
 
-async function init() {
+async function checkBackendStatus(): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE}/api/status`);
     if (res.ok) {
@@ -419,23 +419,44 @@ async function init() {
       if (typeof data.fullAccessGranted === "boolean") {
         updateAccessBadge(data.fullAccessGranted);
       }
-    } else {
-      updateStatus("offline", "Backend Offline");
-    }
-  } catch {
-    updateStatus("offline", "Connecting...");
-  }
-
-  try {
-    const permRes = await fetch(`${API_BASE}/api/permissions`);
-    if (permRes.ok) {
-      const perm = await permRes.json();
-      updateAccessBadge(perm.fullAccessGranted);
-      if (!perm.fullAccessGranted && !perm.asked) {
-        showAccessModal();
-      }
+      return true;
     }
   } catch {}
+  return false;
+}
+
+async function init() {
+  const isOnline = await checkBackendStatus();
+  if (!isOnline) {
+    updateStatus("offline", "Connecting...");
+    const pollTimer = setInterval(async () => {
+      const connected = await checkBackendStatus();
+      if (connected) {
+        clearInterval(pollTimer);
+        try {
+          const permRes = await fetch(`${API_BASE}/api/permissions`);
+          if (permRes.ok) {
+            const perm = await permRes.json();
+            updateAccessBadge(perm.fullAccessGranted);
+            if (!perm.fullAccessGranted && !perm.asked) {
+              showAccessModal();
+            }
+          }
+        } catch {}
+      }
+    }, 1500);
+  } else {
+    try {
+      const permRes = await fetch(`${API_BASE}/api/permissions`);
+      if (permRes.ok) {
+        const perm = await permRes.json();
+        updateAccessBadge(perm.fullAccessGranted);
+        if (!perm.fullAccessGranted && !perm.asked) {
+          showAccessModal();
+        }
+      }
+    } catch {}
+  }
 
   setupEventStream();
 }

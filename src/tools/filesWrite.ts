@@ -87,6 +87,7 @@ export async function deleteFile(filePath: string): Promise<FileDeleteResult> {
   await trash(safePath);
   console.log(`[FilesWrite] ✅ Item moved to recycle bin: "${safePath}"`);
 
+
   return {
     success: true,
     path: safePath,

@@ -5,7 +5,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node ../scripts/dev-orchestrator.js",
+    "dev:vite": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "eslint .",

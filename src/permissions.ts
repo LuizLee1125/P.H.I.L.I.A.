@@ -16,6 +16,7 @@ const DEFAULT_STATE: PermissionsState = {
   updatedAt: null,
 };
 
+// Primary location in current workspace; secondary in user home directory
 function getPermissionsFilePath(): string {
   const localFile = path.resolve(process.cwd(), ".philia-permissions.json");
   return localFile;
@@ -28,6 +29,9 @@ function getHomePermissionsFilePath(): string {
 let cachedState: PermissionsState | null = null;
 const changeListeners: Array<(granted: boolean) => void> = [];
 
+/**
+ * Load permissions state from disk with fallback to user home directory.
+ */
 export function getPermissionsState(): PermissionsState {
   if (cachedState) {
     return { ...cachedState };
@@ -55,6 +59,7 @@ export function getPermissionsState(): PermissionsState {
     }
   }
 
+  // Check environment override (e.g. PHILIA_FULL_ACCESS=true)
   if (process.env.PHILIA_FULL_ACCESS === "true") {
     cachedState = {
       fullAccessGranted: true,
@@ -69,6 +74,9 @@ export function getPermissionsState(): PermissionsState {
   return { ...cachedState };
 }
 
+/**
+ * Persist permissions state to disk (both in workspace and user home directory for robustness).
+ */
 function savePermissionsState(state: PermissionsState) {
   cachedState = { ...state, updatedAt: new Date().toISOString() };
   const data = JSON.stringify(cachedState, null, 2);
@@ -93,14 +101,23 @@ function savePermissionsState(state: PermissionsState) {
   }
 }
 
+/**
+ * Check if the user has granted Philia full access to the computer.
+ */
 export function isFullAccessGranted(): boolean {
   return getPermissionsState().fullAccessGranted;
 }
 
+/**
+ * Check if the user has already been asked for full access permission.
+ */
 export function hasAskedFullAccess(): boolean {
   return getPermissionsState().asked;
 }
 
+/**
+ * Grant full computer access to Philia permanently ("ask first, never again").
+ */
 export function grantFullAccess(): { success: boolean; message: string; state: PermissionsState } {
   const current = getPermissionsState();
   const newState: PermissionsState = {
@@ -121,6 +138,9 @@ export function grantFullAccess(): { success: boolean; message: string; state: P
   };
 }
 
+/**
+ * Revoke full computer access (can be re-requested).
+ */
 export function revokeFullAccess(): { success: boolean; message: string; state: PermissionsState } {
   const current = getPermissionsState();
   const newState: PermissionsState = {
@@ -139,6 +159,9 @@ export function revokeFullAccess(): { success: boolean; message: string; state: 
   };
 }
 
+/**
+ * Record that the user was prompted for full access.
+ */
 export function recordAskedFullAccess(): void {
   const current = getPermissionsState();
   if (!current.asked) {
@@ -146,6 +169,16 @@ export function recordAskedFullAccess(): void {
   }
 }
 
-export function onPermissionsChanged(listener: (granted: boolean) => void): void {
+/**
+ * Register a listener for permission state changes.
+ * Returns an unsubscribe callback.
+ */
+export function onPermissionsChanged(listener: (granted: boolean) => void): () => void {
   changeListeners.push(listener);
+  return () => {
+    const idx = changeListeners.indexOf(listener);
+    if (idx >= 0) {
+      changeListeners.splice(idx, 1);
+    }
+  };
 }

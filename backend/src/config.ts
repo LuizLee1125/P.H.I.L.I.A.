@@ -2,12 +2,17 @@ import dotenv from "dotenv";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
+import { fileURLToPath } from "node:url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Search for .env in current directory, parent directory, and workspace root
 const envPaths = [
   path.resolve(process.cwd(), ".env"),
   path.resolve(process.cwd(), "..", ".env"),
-  path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "..", ".env"),
+  path.resolve(__dirname, "..", ".env"),
+  path.resolve(__dirname, "..", "..", ".env"),
 ];
 
 for (const envPath of envPaths) {

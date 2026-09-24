@@ -21,6 +21,9 @@ export function setCommandConfirmationHandler(handler: CommandConfirmationHandle
   defaultCommandConfirmationHandler = handler;
 }
 
+/**
+ * Execute a shell or terminal command on the user's computer with full system access.
+ */
 export async function executeCommand(commandStr: string, timeoutMs: number = 20000): Promise<CommandResult> {
   console.log(`[System] ⚡ executeCommand: "${commandStr}"`);
 
@@ -48,7 +51,7 @@ export async function executeCommand(commandStr: string, timeoutMs: number = 200
       {
         shell,
         timeout: timeoutMs,
-        maxBuffer: 2 * 1024 * 1024,
+        maxBuffer: 2 * 1024 * 1024, // 2MB
       },
       (error, stdout, stderr) => {
         if (error) {

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import http from "node:http";
+import net from "node:net";
 import path from "node:path";
 import fs from "node:fs";
 
@@ -10,21 +10,52 @@ console.log("=========================================\n");
 const BACKEND_PORT = 4172;
 const FRONTEND_PORT = 5173;
 
-// Helper to check if a port is responding
 function checkPort(port) {
   return new Promise((resolve) => {
-    const req = http.get(`http://127.0.0.1:${port}/`, (res) => {
-      resolve(true);
+    let resolved = false;
+
+    const s1 = net.createConnection({ port, host: "127.0.0.1" }, () => {
+      if (!resolved) {
+        resolved = true;
+        s1.destroy();
+        resolve(true);
+      }
     });
-    req.on("error", () => resolve(false));
-    req.setTimeout(1000, () => {
-      req.destroy();
-      resolve(false);
+
+    s1.on("error", () => {
+      const s2 = net.createConnection({ port, host: "::1" }, () => {
+        if (!resolved) {
+          resolved = true;
+          s2.destroy();
+          resolve(true);
+        }
+      });
+      s2.on("error", () => {
+        if (!resolved) {
+          resolved = true;
+          resolve(false);
+        }
+      });
+      s2.setTimeout(500, () => {
+        s2.destroy();
+        if (!resolved) {
+          resolved = true;
+          resolve(false);
+        }
+      });
+    });
+
+    s1.setTimeout(500, () => {
+      s1.destroy();
+      if (!resolved) {
+        resolved = true;
+        resolve(false);
+      }
     });
   });
 }
 
-async function waitForServer(port, name, timeoutMs = 15000) {
+async function waitForServer(port, name, timeoutMs = 25000) {
   process.stdout.write(`Waiting for ${name} on port ${port}... `);
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -44,11 +75,17 @@ let backendProcess = null;
 
 if (!isBackendUp) {
   console.log("[Launcher] Starting Philia Backend daemon...");
-  backendProcess = spawn("npx", ["tsx", "src/main.ts"], {
-    cwd: path.resolve(process.cwd(), "backend"),
-    stdio: "inherit",
-    shell: true,
-  });
+  if (process.platform === "win32") {
+    backendProcess = spawn("cmd.exe", ["/c", "npm start"], {
+      cwd: path.resolve(process.cwd(), "backend"),
+      stdio: ["ignore", "inherit", "inherit"],
+    });
+  } else {
+    backendProcess = spawn("npm", ["start"], {
+      cwd: path.resolve(process.cwd(), "backend"),
+      stdio: ["ignore", "inherit", "inherit"],
+    });
+  }
 } else {
   console.log("[Launcher] Backend is already running on port " + BACKEND_PORT);
 }
@@ -59,15 +96,22 @@ let frontendProcess = null;
 
 if (!isFrontendUp) {
   console.log("[Launcher] Starting Frontend UI server...");
-  frontendProcess = spawn("npm", ["run", "dev"], {
-    cwd: path.resolve(process.cwd(), "frontend"),
-    stdio: "inherit",
-    shell: true,
-  });
+  if (process.platform === "win32") {
+    frontendProcess = spawn("cmd.exe", ["/c", "npm run dev:vite"], {
+      cwd: path.resolve(process.cwd(), "frontend"),
+      stdio: ["ignore", "inherit", "inherit"],
+    });
+  } else {
+    frontendProcess = spawn("npm", ["run", "dev:vite"], {
+      cwd: path.resolve(process.cwd(), "frontend"),
+      stdio: ["ignore", "inherit", "inherit"],
+    });
+  }
 } else {
   console.log("[Launcher] Frontend is already running on port " + FRONTEND_PORT);
 }
 
+await waitForServer(BACKEND_PORT, "Backend API");
 await waitForServer(FRONTEND_PORT, "Frontend UI");
 
 // 3. Launch Desktop Window in dedicated standalone mode

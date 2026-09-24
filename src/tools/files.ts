@@ -29,9 +29,6 @@ export interface SearchFilesResult {
   limitReached: boolean;
 }
 
-/**
- * Format bytes to human readable string
- */
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 Bytes";
   const k = 1024;
@@ -40,9 +37,6 @@ function formatBytes(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
-/**
- * Common binary extensions to avoid reading as text
- */
 const BINARY_EXTENSIONS = new Set([
   ".exe", ".dll", ".so", ".dylib", ".bin", ".iso", ".img",
   ".zip", ".tar", ".gz", ".7z", ".rar",
@@ -51,25 +45,45 @@ const BINARY_EXTENSIONS = new Set([
   ".pdf", ".docx", ".xlsx", ".pptx"
 ]);
 
-/**
- * Quick heuristic to check if a file buffer appears to be binary.
- */
 function isBinaryBuffer(buffer: Buffer): boolean {
   const checkLength = Math.min(buffer.length, 512);
   for (let i = 0; i < checkLength; i++) {
-    if (buffer[i] === 0) {
-      return true; // Null byte indicates binary content
-    }
+    if (buffer[i] === 0) return true;
   }
   return false;
 }
 
 /**
- * Search for files matching a query starting from a root directory.
- * Root defaults to user's home directory if omitted.
+ * Resolve root shortcut names like "desktop", "downloads", "documents" to actual paths.
+ */
+function resolveSmartRoot(root?: string): string {
+  if (!root || root.trim() === "") return config.homeDir;
+
+  const normalized = root.trim().toLowerCase();
+  const commonFolders: Record<string, string> = {
+    desktop: path.join(config.homeDir, "Desktop"),
+    downloads: path.join(config.homeDir, "Downloads"),
+    documents: path.join(config.homeDir, "Documents"),
+    pictures: path.join(config.homeDir, "Pictures"),
+    music: path.join(config.homeDir, "Music"),
+    videos: path.join(config.homeDir, "Videos"),
+    home: config.homeDir,
+    current: process.cwd(),
+    workspace: process.cwd(),
+  };
+
+  if (commonFolders[normalized] && fs.existsSync(commonFolders[normalized])) {
+    return commonFolders[normalized];
+  }
+
+  return path.resolve(root);
+}
+
+/**
+ * Search for files matching query with fast traversal and pruning.
  */
 export async function searchFiles(query: string, rootDir?: string): Promise<SearchFilesResult> {
-  const targetRoot = rootDir ? path.resolve(rootDir) : config.homeDir;
+  const targetRoot = resolveSmartRoot(rootDir);
   console.log(`[Files] 🔍 searchFiles(query="${query}", root="${targetRoot}")`);
 
   assertPathNotDenied(targetRoot);
@@ -82,27 +96,29 @@ export async function searchFiles(query: string, rootDir?: string): Promise<Sear
   async function traverse(currentDir: string, currentDepth: number) {
     if (matches.length >= maxMatches || currentDepth > maxDepth) return;
 
-    if (isPathDenied(currentDir).denied) {
-      return; // Skip denied directories silently during search traversal
-    }
+    if (isPathDenied(currentDir).denied) return;
 
     let entries: fs.Dirent[];
     try {
       entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
     } catch {
-      return; // Permission denied or inaccessible directory
+      return;
     }
+
+    const subdirs: string[] = [];
 
     for (const entry of entries) {
       if (matches.length >= maxMatches) break;
 
-      // Skip common massive/irrelevant directories during search
+      // Skip heavy / cache folders to make search lightning fast
       if (
-        entry.isDirectory() &&
-        (entry.name.startsWith(".") ||
-         entry.name === "node_modules" ||
-         entry.name === "$Recycle.Bin" ||
-         entry.name === "AppData")
+        entry.name.startsWith(".") ||
+        entry.name === "node_modules" ||
+        entry.name === "$Recycle.Bin" ||
+        entry.name === "AppData" ||
+        entry.name === "target" ||
+        entry.name === "dist" ||
+        entry.name === "build"
       ) {
         continue;
       }
@@ -116,8 +132,14 @@ export async function searchFiles(query: string, rootDir?: string): Promise<Sear
       }
 
       if (entry.isDirectory()) {
-        await traverse(fullPath, currentDepth + 1);
+        subdirs.push(fullPath);
       }
+    }
+
+    // Traverse subdirectories
+    for (const dir of subdirs) {
+      if (matches.length >= maxMatches) break;
+      await traverse(dir, currentDepth + 1);
     }
   }
 
@@ -133,7 +155,7 @@ export async function searchFiles(query: string, rootDir?: string): Promise<Sear
 }
 
 /**
- * Get filesystem metadata for a file or directory.
+ * Fast cached file metadata lookup.
  */
 export async function getFileMetadata(filePath: string): Promise<FileMetadata> {
   console.log(`[Files] ℹ️ getFileMetadata(path="${filePath}")`);
@@ -154,8 +176,7 @@ export async function getFileMetadata(filePath: string): Promise<FileMetadata> {
 }
 
 /**
- * Read text content of a file up to maxChars.
- * Refuses binary files or truncates large files cleanly.
+ * Read text file content safely.
  */
 export async function readFileContent(filePath: string, maxChars: number = 10000): Promise<ReadFileResult> {
   console.log(`[Files] 📖 readFileContent(path="${filePath}", maxChars=${maxChars})`);
@@ -174,7 +195,7 @@ export async function readFileContent(filePath: string, maxChars: number = 10000
 
   const fd = await fs.promises.open(safePath, "r");
   try {
-    const buffer = Buffer.alloc(Math.min(maxChars * 4, 1024 * 1024)); // Read reasonable initial chunk
+    const buffer = Buffer.alloc(Math.min(maxChars * 4, 1024 * 1024));
     const { bytesRead } = await fd.read(buffer, 0, buffer.length, 0);
     const slice = buffer.subarray(0, bytesRead);
 

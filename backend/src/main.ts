@@ -47,21 +47,52 @@ async function promptConfirmation(actionDescription: string): Promise<boolean> {
     fullAccessRequired: true,
   });
 
-  // Prompt the user in CLI
-  const answer = await askQuestion(`Grant Philia Full Access to proceed? (y/N/always): `);
-  const trimmed = answer.trim().toLowerCase();
+  return new Promise((resolve) => {
+    let settled = false;
 
-  if (trimmed === "always" || trimmed === "full" || trimmed === "all") {
-    grantFullAccess();
-    return true;
-  }
+    const cleanup = () => {
+      settled = true;
+      unsubscribe();
+    };
 
-  const confirmed = trimmed === "y" || trimmed === "yes";
-  if (confirmed) {
-    // Once user confirms the first request, grant full access so it never asks again!
-    grantFullAccess();
-  }
-  return confirmed;
+    const unsubscribe = onPermissionsChanged((granted) => {
+      if (granted && !settled) {
+        cleanup();
+        console.log(`[Permissions] Full access granted via UI/API. Proceeding with action...`);
+        resolve(true);
+      }
+    });
+
+    if (process.stdin.isTTY) {
+      askQuestion(`Grant Philia Full Access to proceed? (y/N/always): `)
+        .then((answer) => {
+          if (settled) return;
+          cleanup();
+          const trimmed = answer.trim().toLowerCase();
+          if (trimmed === "always" || trimmed === "full" || trimmed === "all" || trimmed === "y" || trimmed === "yes") {
+            grantFullAccess();
+            resolve(true);
+          } else {
+            resolve(false);
+          }
+        })
+        .catch(() => {
+          if (!settled) {
+            cleanup();
+            resolve(false);
+          }
+        });
+    } else {
+      // In non-interactive environment (daemon / background), wait up to 45s for UI grant
+      setTimeout(() => {
+        if (!settled) {
+          cleanup();
+          console.warn(`[Permissions] Timed out waiting for UI permission grant on: "${actionDescription}".`);
+          resolve(false);
+        }
+      }, 45000);
+    }
+  });
 }
 
 setAppConfirmationHandler(promptConfirmation);
@@ -245,7 +276,7 @@ async function startVoiceListener() {
             }
           }
         }
-      } catch (err: any) {
+      } catch {
         if (!isShuttingDown) {
           await new Promise((r) => setTimeout(r, 500));
         }
@@ -272,7 +303,8 @@ function startApiServer() {
       return;
     }
 
-    const url = new URL(req.url || "/", `http://${req.headers.host}`);
+    const host = req.headers.host || `127.0.0.1:${config.port}`;
+    const url = new URL(req.url || "/", `http://${host}`);
 
     // SSE endpoint for live streaming events to UI
     if (url.pathname === "/api/events") {
@@ -305,10 +337,25 @@ function startApiServer() {
     };
 
     try {
+      if ((url.pathname === "/" || url.pathname === "") && req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          status: "online",
+          name: "Philia Desktop Assistant API",
+          version: "1.0.0",
+          model: config.geminiModel,
+          platform: process.platform,
+          fullAccessGranted: isFullAccessGranted(),
+          askedFullAccess: hasAskedFullAccess(),
+        }));
+        return;
+      }
+
       if (url.pathname === "/api/status" && req.method === "GET") {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({
           status: "online",
+          name: "Philia Desktop Assistant API",
           model: config.geminiModel,
           voiceName: config.geminiVoice,
           voiceWakeWordActive: Boolean(recorderInstance),
@@ -446,6 +493,10 @@ function startApiServer() {
 }
 
 function runInteractiveCli() {
+  if (!process.stdin.isTTY) {
+    return;
+  }
+
   const promptUser = () => {
     if (isShuttingDown) return;
 
@@ -458,7 +509,10 @@ function runInteractiveCli() {
       }
 
       if (command.length > 0) {
-        await executeUserCommand(command, true);
+        const brainResult = await executeUserCommand(command, true);
+        if (brainResult && brainResult.reply) {
+          console.log(`\nPhilia ❯ ${brainResult.reply}\n`);
+        }
       }
 
       promptUser();

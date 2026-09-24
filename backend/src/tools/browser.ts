@@ -1,6 +1,7 @@
 import { chromium, type BrowserContext, type Page, type Locator } from "playwright";
 import path from "node:path";
 import fs from "node:fs";
+import { execSync } from "node:child_process";
 import { config } from "../config.js";
 
 export interface InteractiveElement {
@@ -29,6 +30,21 @@ const currentElementMap = new Map<number, InteractiveElement>();
 
 const USER_DATA_DIR = path.resolve(process.cwd(), "browser_profile");
 
+function cleanStaleProfileLocks(profileDir: string) {
+  try {
+    const lockFiles = ["lockfile", "SingletonLock", "SingletonCookie", "SingletonSocket"];
+    for (const f of lockFiles) {
+      const fullPath = path.join(profileDir, f);
+      if (fs.existsSync(fullPath)) {
+        try {
+          fs.unlinkSync(fullPath);
+          console.log(`[Browser] 🧹 Cleared stale profile lock: ${f}`);
+        } catch {}
+      }
+    }
+  } catch {}
+}
+
 /**
  * Ensures Playwright dedicated profile exists and browser context is launched.
  */
@@ -41,23 +57,67 @@ export async function getOrCreateBrowser(): Promise<{ context: BrowserContext; p
     fs.mkdirSync(USER_DATA_DIR, { recursive: true });
   }
 
+  cleanStaleProfileLocks(USER_DATA_DIR);
+
   console.log(`[Browser] 🌐 Launching browser (Headless: ${config.browserHeadless}, Profile: "${USER_DATA_DIR}")`);
 
-  browserContext = await chromium.launchPersistentContext(USER_DATA_DIR, {
-    headless: config.browserHeadless,
-    viewport: { width: 1280, height: 800 },
-    args: ["--disable-blink-features=AutomationControlled"],
-  });
+  try {
+    browserContext = await chromium.launchPersistentContext(USER_DATA_DIR, {
+      headless: config.browserHeadless,
+      viewport: { width: 1280, height: 800 },
+      args: ["--disable-blink-features=AutomationControlled"],
+    });
+  } catch (err: any) {
+    const isLockError = err.message && (
+      err.message.includes("ProcessSingleton") ||
+      err.message.includes("Lock file") ||
+      err.message.includes("EBUSY") ||
+      err.message.includes("already in use")
+    );
 
-  const pages = browserContext.pages();
-  activePage = pages.length > 0 ? pages[0] : await browserContext.newPage();
+    if (isLockError) {
+      console.warn(`[Browser] ⚠️ Profile directory is locked (${err.message}). Terminating orphaned browser processes and cleaning locks...`);
+      cleanStaleProfileLocks(USER_DATA_DIR);
+
+      if (process.platform === "win32") {
+        try {
+          execSync('powershell.exe -NoProfile -Command "Get-Process chrome -ErrorAction SilentlyContinue | Where-Object { $_.Path -like \'*ms-playwright*\' } | Stop-Process -Force"', { stdio: "ignore" });
+        } catch {}
+      }
+
+      await new Promise((r) => setTimeout(r, 600));
+      cleanStaleProfileLocks(USER_DATA_DIR);
+
+      try {
+        browserContext = await chromium.launchPersistentContext(USER_DATA_DIR, {
+          headless: config.browserHeadless,
+          viewport: { width: 1280, height: 800 },
+          args: ["--disable-blink-features=AutomationControlled"],
+        });
+      } catch (retryErr: any) {
+        console.warn(`[Browser] ⚠️ Persistent profile retry failed (${retryErr.message}). Launching isolated browser context...`);
+        const standalone = await chromium.launch({
+          headless: config.browserHeadless,
+          args: ["--disable-blink-features=AutomationControlled"],
+        });
+        browserContext = await standalone.newContext({
+          viewport: { width: 1280, height: 800 },
+        }) as any;
+      }
+    } else {
+      throw err;
+    }
+  }
+
+  const pages = browserContext!.pages();
+  activePage = pages.length > 0 ? pages[0] : await browserContext!.newPage();
 
   activePage.on("close", () => {
     activePage = null;
     currentElementMap.clear();
   });
 
-  return { context: browserContext, page: activePage };
+  return { context: browserContext!, page: activePage };
 }
 
 function isSensitivePage(title: string, url: string, bodyText: string): boolean {

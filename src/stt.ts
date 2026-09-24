@@ -9,11 +9,6 @@ Transcribe the spoken audio clip accurately into plain English text.
 Return ONLY the transcription. Do not add commentary, notes, quotes, or timestamps.
 If the audio contains only background noise, clicks, or silence, respond with strictly: [SILENCE]`;
 
-/**
- * Transcribe an audio buffer (PCM or WAV) using Gemini Multimodal Audio API.
- * @param audioBuffer Audio data (PCM 16-bit 16000Hz or standard WAV)
- * @param isRawPcm Whether the buffer is raw PCM (true) or formatted WAV (false)
- */
 export async function transcribeAudio(
   audioBuffer: Buffer,
   isRawPcm: boolean = true
@@ -35,9 +30,7 @@ export async function transcribeAudio(
     }
   }
 
-  // If raw PCM from PvRecorder (16kHz 16-bit mono), wrap into standard WAV
   const wavBuffer = isRawPcm ? pcmToWav(audioBuffer, 16000, 1) : audioBuffer;
-
   const base64Audio = wavBuffer.toString("base64");
   console.log(`[STT] 🎙️ Transcribing ${wavBuffer.length} bytes of audio via Gemini...`);
 
@@ -57,7 +50,6 @@ export async function transcribeAudio(
 
     const transcription = (response.text || "").trim();
 
-    // Filter out common silent artifacts like [SILENCE], timestamps (00:00), or empty brackets
     const cleaned = transcription.replace(/[\[\(].*?[\]\)]/g, "").trim();
     const isSilenceArtifact =
       !transcription ||

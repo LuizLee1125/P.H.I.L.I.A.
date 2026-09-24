@@ -1,6 +1,7 @@
 import { chromium, type BrowserContext, type Page, type Locator } from "playwright";
 import path from "node:path";
 import fs from "node:fs";
+import { execSync } from "node:child_process";
 import { config } from "../config.js";
 
 export interface InteractiveElement {
@@ -29,8 +30,23 @@ const currentElementMap = new Map<number, InteractiveElement>();
 
 const USER_DATA_DIR = path.resolve(process.cwd(), "browser_profile");
 
+function cleanStaleProfileLocks(profileDir: string) {
+  try {
+    const lockFiles = ["lockfile", "SingletonLock", "SingletonCookie", "SingletonSocket"];
+    for (const f of lockFiles) {
+      const fullPath = path.join(profileDir, f);
+      if (fs.existsSync(fullPath)) {
+        try {
+          fs.unlinkSync(fullPath);
+          console.log(`[Browser] 🧹 Cleared stale profile lock: ${f}`);
+        } catch {}
+      }
+    }
+  } catch {}
+}
+
 /**
- * Ensures Playwright dedicated profile exists and browser context is launched headed by default.
+ * Ensures Playwright dedicated profile exists and browser context is launched.
  */
 export async function getOrCreateBrowser(): Promise<{ context: BrowserContext; page: Page }> {
   if (browserContext && activePage && !activePage.isClosed()) {
@@ -41,28 +57,69 @@ export async function getOrCreateBrowser(): Promise<{ context: BrowserContext; p
     fs.mkdirSync(USER_DATA_DIR, { recursive: true });
   }
 
+  cleanStaleProfileLocks(USER_DATA_DIR);
+
   console.log(`[Browser] 🌐 Launching browser (Headless: ${config.browserHeadless}, Profile: "${USER_DATA_DIR}")`);
 
-  browserContext = await chromium.launchPersistentContext(USER_DATA_DIR, {
-    headless: config.browserHeadless,
-    viewport: { width: 1280, height: 800 },
-    args: ["--disable-blink-features=AutomationControlled"],
-  });
+  try {
+    browserContext = await chromium.launchPersistentContext(USER_DATA_DIR, {
+      headless: config.browserHeadless,
+      viewport: { width: 1280, height: 800 },
+      args: ["--disable-blink-features=AutomationControlled"],
+    });
+  } catch (err: any) {
+    const isLockError = err.message && (
+      err.message.includes("ProcessSingleton") ||
+      err.message.includes("Lock file") ||
+      err.message.includes("EBUSY") ||
+      err.message.includes("already in use")
+    );
 
-  const pages = browserContext.pages();
-  activePage = pages.length > 0 ? pages[0] : await browserContext.newPage();
+    if (isLockError) {
+      console.warn(`[Browser] ⚠️ Profile directory is locked (${err.message}). Terminating orphaned browser processes and cleaning locks...`);
+      cleanStaleProfileLocks(USER_DATA_DIR);
+
+      if (process.platform === "win32") {
+        try {
+          execSync('powershell.exe -NoProfile -Command "Get-Process chrome -ErrorAction SilentlyContinue | Where-Object { $_.Path -like \'*ms-playwright*\' } | Stop-Process -Force"', { stdio: "ignore" });
+        } catch {}
+      }
+
+      await new Promise((r) => setTimeout(r, 600));
+      cleanStaleProfileLocks(USER_DATA_DIR);
+
+      try {
+        browserContext = await chromium.launchPersistentContext(USER_DATA_DIR, {
+          headless: config.browserHeadless,
+          viewport: { width: 1280, height: 800 },
+          args: ["--disable-blink-features=AutomationControlled"],
+        });
+      } catch (retryErr: any) {
+        console.warn(`[Browser] ⚠️ Persistent profile retry failed (${retryErr.message}). Launching isolated browser context...`);
+        const standalone = await chromium.launch({
+          headless: config.browserHeadless,
+          args: ["--disable-blink-features=AutomationControlled"],
+        });
+        browserContext = await standalone.newContext({
+          viewport: { width: 1280, height: 800 },
+        }) as any;
+      }
+    } else {
+      throw err;
+    }
+  }
+
+  const pages = browserContext!.pages();
+  activePage = pages.length > 0 ? pages[0] : await browserContext!.newPage();
 
   activePage.on("close", () => {
     activePage = null;
     currentElementMap.clear();
   });
 
-  return { context: browserContext, page: activePage };
+  return { context: browserContext!, page: activePage };
 }
 
-/**
- * Detect whether page or element appears to involve login, passwords, checkout, or payments.
- */
 function isSensitivePage(title: string, url: string, bodyText: string): boolean {
   const sensitiveKeywords = [
     "sign in", "log in", "login", "signin",
@@ -73,17 +130,12 @@ function isSensitivePage(title: string, url: string, bodyText: string): boolean 
   return sensitiveKeywords.some((kw) => combined.includes(kw));
 }
 
-/**
- * Inspect page, assign numeric references [1], [2] to interactive elements,
- * and return a clean text representation for Gemini.
- */
 export async function enumerateInteractiveElements(page: Page): Promise<string> {
   currentElementMap.clear();
 
   const title = await page.title().catch(() => "Untitled");
   const url = page.url();
 
-  // Selector for standard interactive elements
   const selector = `
     button,
     a[href],
@@ -101,9 +153,8 @@ export async function enumerateInteractiveElements(page: Page): Promise<string> 
 
   const elementsSummary: string[] = [];
   let refCounter = 1;
-  const maxElements = 40; // Avoid overwhelming the model context
+  const maxElements = 40;
 
-  // Check if current page is sensitive
   const bodySnippet = await page.evaluate(() => document.body ? document.body.innerText.slice(0, 800) : "").catch(() => "");
   const pageSensitive = isSensitivePage(title, url, bodySnippet);
 
@@ -157,9 +208,6 @@ export async function enumerateInteractiveElements(page: Page): Promise<string> 
     (elementsSummary.length > 0 ? elementsSummary.join("\n") : "(No interactive elements detected)");
 }
 
-/**
- * Tool: Navigate to a URL.
- */
 export async function browserOpen(url: string): Promise<string> {
   let targetUrl = url;
   if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
@@ -171,7 +219,6 @@ export async function browserOpen(url: string): Promise<string> {
 
   try {
     await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
-    // Brief settle time for JS rendering
     await page.waitForTimeout(1000);
   } catch (err) {
     console.warn(`[Browser] Navigation timeout/warning: ${err}`);
@@ -180,18 +227,12 @@ export async function browserOpen(url: string): Promise<string> {
   return await enumerateInteractiveElements(page);
 }
 
-/**
- * Tool: Search Google via browser.
- */
 export async function browserSearch(query: string): Promise<string> {
   console.log(`[Browser] 🔍 browserSearch(query="${query}")`);
   const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
   return await browserOpen(searchUrl);
 }
 
-/**
- * Tool: Click an element by its numeric reference.
- */
 export async function browserClick(ref: number): Promise<string> {
   console.log(`[Browser] 🖱️ browserClick(ref=${ref})`);
   const { page } = await getOrCreateBrowser();
@@ -201,7 +242,6 @@ export async function browserClick(ref: number): Promise<string> {
     throw new Error(`Invalid element ref [${ref}]. Please call browserReadPage() to view valid interactive element refs.`);
   }
 
-  // Guardrail check for sensitive pages/actions
   if (element.isSensitive) {
     const actionDesc = `Click sensitive element [${ref}] <${element.tag}> "${element.text}" on ${page.url()}`;
     console.log(`[Browser Guardrail] ⚠️ ${actionDesc}`);
@@ -212,14 +252,11 @@ export async function browserClick(ref: number): Promise<string> {
   }
 
   await element.locator.click({ timeout: 10000 });
-  await page.waitForTimeout(1500); // Allow dynamic DOM update or navigation
+  await page.waitForTimeout(1500);
 
   return await enumerateInteractiveElements(page);
 }
 
-/**
- * Tool: Type text into an input element by ref.
- */
 export async function browserType(ref: number, text: string, pressEnter: boolean = false): Promise<string> {
   console.log(`[Browser] ⌨️ browserType(ref=${ref}, text="${text}", pressEnter=${pressEnter})`);
   const { page } = await getOrCreateBrowser();
@@ -240,16 +277,12 @@ export async function browserType(ref: number, text: string, pressEnter: boolean
   return await enumerateInteractiveElements(page);
 }
 
-/**
- * Tool: Read current page content and interactive elements.
- */
 export async function browserReadPage(): Promise<string> {
   console.log(`[Browser] 📄 browserReadPage()`);
   const { page } = await getOrCreateBrowser();
 
   const elementsSummary = await enumerateInteractiveElements(page);
 
-  // Extract main readable text from page
   const textContent = await page.evaluate(() => {
     const main = document.querySelector("main") || document.querySelector("article") || document.body;
     if (!main) return "";
@@ -259,9 +292,6 @@ export async function browserReadPage(): Promise<string> {
   return `${elementsSummary}\n\nReadable Page Text Excerpt:\n${textContent.slice(0, 1500)}`;
 }
 
-/**
- * Close browser context when shutting down.
- */
 export async function browserClose(): Promise<void> {
   if (browserContext) {
     console.log(`[Browser] 🛑 Closing browser context...`);

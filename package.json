@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "npm --prefix backend start",
+    "dev": "node scripts/launch-app.js",
     "backend": "npm --prefix backend start",
     "backend:dev": "npm --prefix backend run dev",
     "frontend": "npm --prefix frontend run dev",

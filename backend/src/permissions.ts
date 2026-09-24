@@ -171,7 +171,14 @@ export function recordAskedFullAccess(): void {
 
 /**
  * Register a listener for permission state changes.
+ * Returns an unsubscribe callback.
  */
-export function onPermissionsChanged(listener: (granted: boolean) => void): void {
+export function onPermissionsChanged(listener: (granted: boolean) => void): () => void {
   changeListeners.push(listener);
+  return () => {
+    const idx = changeListeners.indexOf(listener);
+    if (idx >= 0) {
+      changeListeners.splice(idx, 1);
+    }
+  };
 }

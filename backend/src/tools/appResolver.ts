@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import open, { openApp } from "open";
 
 export interface ResolvedApp {
@@ -9,6 +9,7 @@ export interface ResolvedApp {
   name: string;
   targetPath: string;
   type: "shortcut" | "executable" | "protocol" | "system";
+  arguments?: string;
   workingDirectory?: string;
   score: number;
 }
@@ -21,7 +22,7 @@ export interface ShortcutItem {
   isUninstaller: boolean;
 }
 
-// Built-in system aliases for instant 0ms resolution
+// Built-in native Windows OS tools & special URLs (guaranteed in System32 / Windows Shell)
 const KNOWN_SYSTEM_ALIASES: Record<string, { target: string; type: "executable" | "protocol" | "system"; workingDir?: string }> = {
   // Calculators & Utilities
   calc: { target: "calc.exe", type: "system" },
@@ -35,36 +36,134 @@ const KNOWN_SYSTEM_ALIASES: Record<string, { target: string; type: "executable" 
   taskmgr: { target: "taskmgr.exe", type: "system" },
   "task manager": { target: "taskmgr.exe", type: "system" },
   cmd: { target: "cmd.exe", type: "system" },
+  "command prompt": { target: "cmd.exe", type: "system" },
   terminal: { target: "wt.exe", type: "system" },
   "windows terminal": { target: "wt.exe", type: "system" },
   wt: { target: "wt.exe", type: "system" },
   powershell: { target: "powershell.exe", type: "system" },
   settings: { target: "ms-settings:", type: "protocol" },
+  "windows settings": { target: "ms-settings:", type: "protocol" },
   control: { target: "control.exe", type: "system" },
   "control panel": { target: "control.exe", type: "system" },
 
-  // Browsers
-  chrome: { target: "chrome.exe", type: "system" },
-  "google chrome": { target: "chrome.exe", type: "system" },
-  edge: { target: "msedge.exe", type: "system" },
-  "microsoft edge": { target: "msedge.exe", type: "system" },
-  firefox: { target: "firefox.exe", type: "system" },
-  opera: { target: "opera.exe", type: "system" },
-  brave: { target: "brave.exe", type: "system" },
+  // Browsers & Web
+  browser: { target: "https://www.google.com", type: "protocol" },
+  "web browser": { target: "https://www.google.com", type: "protocol" },
+  "my browser": { target: "https://www.google.com", type: "protocol" },
+  google: { target: "https://www.google.com", type: "protocol" },
+  youtube: { target: "https://www.youtube.com", type: "protocol" },
 
-  // Development
-  code: { target: "code.cmd", type: "system" },
-  vscode: { target: "code.cmd", type: "system" },
-  "visual studio code": { target: "code.cmd", type: "system" },
-
-  // Gaming & Launchers
-  hoyoplay: { target: "C:\\Program Files\\HoYoPlay\\launcher.exe", type: "executable", workingDir: "C:\\Program Files\\HoYoPlay" },
-  hoyo: { target: "C:\\Program Files\\HoYoPlay\\launcher.exe", type: "executable", workingDir: "C:\\Program Files\\HoYoPlay" },
-  hyp: { target: "C:\\Program Files\\HoYoPlay\\launcher.exe", type: "executable", workingDir: "C:\\Program Files\\HoYoPlay" },
-  steam: { target: "steam.exe", type: "system" },
-  spotify: { target: "spotify.exe", type: "system" },
-  discord: { target: "discord.exe", type: "system" },
+  // System Locations
+  documents: { target: path.join(os.homedir(), "Documents"), type: "system" },
+  downloads: { target: path.join(os.homedir(), "Downloads"), type: "system" },
+  desktop: { target: path.join(os.homedir(), "Desktop"), type: "system" },
 };
+
+// Common aliases mapping casual names to expected shortcut terms
+const ALIAS_NORMALIZATION: Record<string, string[]> = {
+  vscode: ["visualstudiocode", "code"],
+  "vs code": ["visualstudiocode", "code"],
+  code: ["visualstudiocode", "code"],
+  opera: ["operagxbrowser", "operagx", "opera"],
+  "opera gx": ["operagxbrowser", "operagx"],
+  operagx: ["operagxbrowser", "operagx"],
+  hoyoplay: ["hoyoplay", "launcher"],
+  hoyo: ["hoyoplay"],
+  hyp: ["hoyoplay"],
+  genshin: ["genshinimpactcloud", "genshinimpact"],
+  "genshin impact": ["genshinimpactcloud", "genshinimpact"],
+  hsr: ["honkaistarrail"],
+  "star rail": ["honkaistarrail"],
+  "honkai star rail": ["honkaistarrail"],
+  spotify: ["spotify"],
+  discord: ["discord"],
+  steam: ["steam"],
+  valorant: ["valorant", "riotclient"],
+  obs: ["obsstudio", "obs64"],
+  "obs studio": ["obsstudio", "obs64"],
+  autocad: ["autocad2025english", "autocad"],
+  "packet tracer": ["ciscopackettracer", "packettracer"],
+  cisco: ["ciscopackettracer"],
+  tlauncher: ["tlauncher"],
+  minecraft: ["tlauncher", "minecraft"],
+};
+
+/**
+ * Common app installation paths on Windows for instant, 0ms fallback detection.
+ */
+function getCommonAppFallbacks(): Record<string, { path: string; args?: string; workingDir?: string }[]> {
+  const home = os.homedir();
+  const localAppData = process.env.LOCALAPPDATA || path.join(home, "AppData", "Local");
+  const appData = process.env.APPDATA || path.join(home, "AppData", "Roaming");
+
+  return {
+    spotify: [
+      { path: path.join(appData, "Spotify", "Spotify.exe"), workingDir: path.join(appData, "Spotify") },
+    ],
+    discord: [
+      { path: path.join(localAppData, "Discord", "Update.exe"), args: "--processStart Discord.exe", workingDir: path.join(localAppData, "Discord") },
+    ],
+    steam: [
+      { path: "C:\\Program Files (x86)\\Steam\\steam.exe", workingDir: "C:\\Program Files (x86)\\Steam" },
+      { path: "C:\\Program Files\\Steam\\steam.exe", workingDir: "C:\\Program Files\\Steam" },
+      { path: "steam://open/main", args: "" },
+    ],
+    vscode: [
+      { path: path.join(localAppData, "Programs", "Microsoft VS Code", "Code.exe"), workingDir: path.join(localAppData, "Programs", "Microsoft VS Code") },
+      { path: "C:\\Program Files\\Microsoft VS Code\\Code.exe", workingDir: "C:\\Program Files\\Microsoft VS Code" },
+    ],
+    code: [
+      { path: path.join(localAppData, "Programs", "Microsoft VS Code", "Code.exe"), workingDir: path.join(localAppData, "Programs", "Microsoft VS Code") },
+      { path: "C:\\Program Files\\Microsoft VS Code\\Code.exe", workingDir: "C:\\Program Files\\Microsoft VS Code" },
+    ],
+    "visual studio code": [
+      { path: path.join(localAppData, "Programs", "Microsoft VS Code", "Code.exe"), workingDir: path.join(localAppData, "Programs", "Microsoft VS Code") },
+      { path: "C:\\Program Files\\Microsoft VS Code\\Code.exe", workingDir: "C:\\Program Files\\Microsoft VS Code" },
+    ],
+    hoyoplay: [
+      { path: "C:\\Program Files\\HoYoPlay\\launcher.exe", workingDir: "C:\\Program Files\\HoYoPlay" },
+    ],
+    hoyo: [
+      { path: "C:\\Program Files\\HoYoPlay\\launcher.exe", workingDir: "C:\\Program Files\\HoYoPlay" },
+    ],
+    opera: [
+      { path: path.join(localAppData, "Programs", "Opera GX", "opera.exe"), workingDir: path.join(localAppData, "Programs", "Opera GX") },
+      { path: path.join(localAppData, "Programs", "Opera", "launcher.exe"), workingDir: path.join(localAppData, "Programs", "Opera") },
+    ],
+    "opera gx": [
+      { path: path.join(localAppData, "Programs", "Opera GX", "opera.exe"), workingDir: path.join(localAppData, "Programs", "Opera GX") },
+    ],
+    operagx: [
+      { path: path.join(localAppData, "Programs", "Opera GX", "opera.exe"), workingDir: path.join(localAppData, "Programs", "Opera GX") },
+    ],
+    chrome: [
+      { path: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", workingDir: "C:\\Program Files\\Google\\Chrome\\Application" },
+      { path: "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe", workingDir: "C:\\Program Files (x86)\\Google\\Chrome\\Application" },
+    ],
+    "google chrome": [
+      { path: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", workingDir: "C:\\Program Files\\Google\\Chrome\\Application" },
+      { path: "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe", workingDir: "C:\\Program Files (x86)\\Google\\Chrome\\Application" },
+    ],
+    edge: [
+      { path: "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe", workingDir: "C:\\Program Files (x86)\\Microsoft\\Edge\\Application" },
+    ],
+    "microsoft edge": [
+      { path: "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe", workingDir: "C:\\Program Files (x86)\\Microsoft\\Edge\\Application" },
+    ],
+    firefox: [
+      { path: "C:\\Program Files\\Mozilla Firefox\\firefox.exe", workingDir: "C:\\Program Files\\Mozilla Firefox" },
+    ],
+    brave: [
+      { path: "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe", workingDir: "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application" },
+    ],
+    obs: [
+      { path: "C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe", workingDir: "C:\\Program Files\\obs-studio\\bin\\64bit" },
+    ],
+    "obs studio": [
+      { path: "C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe", workingDir: "C:\\Program Files\\obs-studio\\bin\\64bit" },
+    ],
+  };
+}
 
 let cachedShortcuts: ShortcutItem[] = [];
 let lastShortcutScanTime = 0;
@@ -81,6 +180,7 @@ function getShortcutDirectories(): string[] {
     "C:\\Users\\Public\\Desktop",
     path.join(home, "AppData", "Roaming", "Microsoft", "Windows", "Start Menu", "Programs"),
     "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs",
+    path.join(home, "AppData", "Roaming", "Microsoft", "Internet Explorer", "Quick Launch", "User Pinned", "TaskBar"),
   ];
 }
 
@@ -119,7 +219,8 @@ export function scanShortcuts(force: boolean = false): ShortcutItem[] {
               baseName.includes("uninstall") ||
               baseName.includes("remove") ||
               baseName.includes("setup") ||
-              baseName.includes("unins000");
+              baseName.includes("unins000") ||
+              baseName.includes("卸载");
 
             items.push({
               name: entry.name,
@@ -142,20 +243,22 @@ export function scanShortcuts(force: boolean = false): ShortcutItem[] {
 }
 
 /**
- * Clean user query: remove common prefix words ("open", "launch", "start", "run", "the").
+ * Clean user query: remove conversational prefixes and file extensions.
  */
-function cleanQuery(query: string): string {
+export function cleanQuery(query: string): string {
   return query
     .trim()
     .toLowerCase()
-    .replace(/^(open|launch|start|run|play)\s+(the\s+)?/i, "")
+    .replace(/^(can you |could you |please )+/i, "")
+    .replace(/^(open|launch|start|run|play|execute)\s+(the\s+|my\s+)?/i, "")
+    .replace(/( please| thanks| thank you)+$/i, "")
     .replace(/\.exe$/i, "")
     .replace(/\.lnk$/i, "")
     .trim();
 }
 
 /**
- * Resolve an application request to a concrete executable or shortcut.
+ * Resolve an application request to a concrete executable, shortcut, or protocol.
  */
 export async function resolveApplication(rawQuery: string): Promise<ResolvedApp | null> {
   const query = cleanQuery(rawQuery);
@@ -163,36 +266,23 @@ export async function resolveApplication(rawQuery: string): Promise<ResolvedApp 
 
   if (!query) return null;
 
-  // 1. Check known system aliases (0ms instant match)
+  // 1. Check known system aliases for OS built-ins (calc, notepad, cmd, explorer, etc.)
   if (KNOWN_SYSTEM_ALIASES[query]) {
     const alias = KNOWN_SYSTEM_ALIASES[query];
-    // If it's a fixed path (like HoYoPlay), check if it exists on disk
-    if (alias.type === "executable" && alias.target.includes("\\")) {
-      if (fs.existsSync(alias.target)) {
-        return {
-          query: rawQuery,
-          name: query,
-          targetPath: alias.target,
-          type: "executable",
-          workingDirectory: alias.workingDir || path.dirname(alias.target),
-          score: 100,
-        };
-      }
-    } else {
-      return {
-        query: rawQuery,
-        name: query,
-        targetPath: alias.target,
-        type: alias.type,
-        workingDirectory: alias.workingDir,
-        score: 100,
-      };
-    }
+    return {
+      query: rawQuery,
+      name: query,
+      targetPath: alias.target,
+      type: alias.type,
+      workingDirectory: alias.workingDir,
+      score: 100,
+    };
   }
 
   // 2. Scan Desktop and Start Menu shortcuts
   const shortcuts = scanShortcuts();
   const candidates: Array<{ item: ShortcutItem; score: number }> = [];
+  const normalizedTargets = ALIAS_NORMALIZATION[query] || [];
 
   for (const item of shortcuts) {
     if (item.isUninstaller && !query.includes("uninstall")) {
@@ -202,14 +292,16 @@ export async function resolveApplication(rawQuery: string): Promise<ResolvedApp 
     let score = 0;
     if (item.cleanBaseName === cleanQ) {
       score = 100;
+    } else if (normalizedTargets.includes(item.cleanBaseName)) {
+      score = 95;
     } else if (item.baseName === query) {
-      score = 98;
-    } else if (item.cleanBaseName.startsWith(cleanQ)) {
+      score = 90;
+    } else if (item.cleanBaseName.startsWith(cleanQ) || cleanQ.startsWith(item.cleanBaseName)) {
       score = 85;
     } else if (item.cleanBaseName.includes(cleanQ)) {
-      score = 70;
+      score = 75;
     } else if (item.baseName.includes(query)) {
-      score = 60;
+      score = 65;
     }
 
     if (score > 0) {
@@ -230,41 +322,80 @@ export async function resolveApplication(rawQuery: string): Promise<ResolvedApp 
     };
   }
 
-  // 3. Check Common Program Files directories on Windows
+  // 3. Check Common Application Install Paths on Disk (Spotify, Discord, HoYoPlay, VS Code, Steam, Browsers)
+  const fallbacks = getCommonAppFallbacks();
+  const targetFallbacks = fallbacks[query] || fallbacks[cleanQ];
+  if (targetFallbacks) {
+    for (const fb of targetFallbacks) {
+      if (fb.path.includes("://")) {
+        return {
+          query: rawQuery,
+          name: query,
+          targetPath: fb.path,
+          type: "protocol",
+          score: 85,
+        };
+      }
+      if (fs.existsSync(fb.path)) {
+        return {
+          query: rawQuery,
+          name: query,
+          targetPath: fb.path,
+          arguments: fb.args,
+          workingDirectory: fb.workingDir || path.dirname(fb.path),
+          type: "executable",
+          score: 90,
+        };
+      }
+    }
+  }
+
+  // 4. Check Common Program Files and LocalAppData directories on Windows
   if (process.platform === "win32") {
     const commonDirs = [
       path.join(process.env.LOCALAPPDATA || "", "Programs"),
       "C:\\Program Files",
       "C:\\Program Files (x86)",
+      path.join(process.env.LOCALAPPDATA || "", "Microsoft", "WindowsApps"),
     ];
 
     for (const parent of commonDirs) {
       if (!fs.existsSync(parent)) continue;
 
-      // Check direct folder match: e.g. "C:\Program Files\HoYoPlay"
       try {
         const subdirs = fs.readdirSync(parent);
         for (const sub of subdirs) {
           const cleanSub = sub.toLowerCase().replace(/[^a-z0-9]/g, "");
           if (cleanSub === cleanQ || cleanSub.includes(cleanQ)) {
             const fullDir = path.join(parent, sub);
-            // Look for launcher.exe or <subName>.exe
-            const possibleExes = [
-              path.join(fullDir, "launcher.exe"),
-              path.join(fullDir, `${sub}.exe`),
-              path.join(fullDir, `${query}.exe`),
-            ];
-            for (const exe of possibleExes) {
-              if (fs.existsSync(exe)) {
-                return {
-                  query: rawQuery,
-                  name: sub,
-                  targetPath: exe,
-                  type: "executable",
-                  workingDirectory: fullDir,
-                  score: 90,
-                };
+            const stat = fs.statSync(fullDir);
+            if (stat.isDirectory()) {
+              const possibleExes = [
+                path.join(fullDir, "launcher.exe"),
+                path.join(fullDir, `${sub}.exe`),
+                path.join(fullDir, `${query}.exe`),
+              ];
+              for (const exe of possibleExes) {
+                if (fs.existsSync(exe)) {
+                  return {
+                    query: rawQuery,
+                    name: sub,
+                    targetPath: exe,
+                    type: "executable",
+                    workingDirectory: fullDir,
+                    score: 80,
+                  };
+                }
               }
+            } else if (sub.toLowerCase().endsWith(".exe")) {
+              return {
+                query: rawQuery,
+                name: sub,
+                targetPath: fullDir,
+                type: "executable",
+                workingDirectory: parent,
+                score: 85,
+              };
             }
           }
         }
@@ -272,7 +403,7 @@ export async function resolveApplication(rawQuery: string): Promise<ResolvedApp 
     }
   }
 
-  // 4. Fallback to generic system command / executable
+  // 5. Fallback: treat as general system command or protocol
   return {
     query: rawQuery,
     name: query,
@@ -283,7 +414,90 @@ export async function resolveApplication(rawQuery: string): Promise<ResolvedApp 
 }
 
 /**
- * Launch an application with optimal execution strategy and zero latency.
+ * Launch an application using the official Windows ShellExecuteEx engine.
+ * Completely handles:
+ * - Shortcuts (.lnk) by resolving target, arguments, and working directory
+ * - Direct executables (.exe) with proper working directory
+ * - Protocols (ms-settings:, steam://, https://)
+ * - UWP apps (shell:AppsFolder\...)
+ * - System binaries (calc, notepad, cmd)
+ */
+function launchWindowsTarget(opts: {
+  target: string;
+  arguments?: string;
+  workingDirectory?: string;
+}): Promise<{ success: boolean; pid?: number; resolvedTarget: string }> {
+  return new Promise((resolve, reject) => {
+    const escapedTarget = (opts.target || "").replace(/'/g, "''");
+    const escapedArgs = (opts.arguments || "").replace(/'/g, "''");
+    const escapedWorkDir = (opts.workingDirectory || "").replace(/'/g, "''");
+
+    const script = `
+$target = '${escapedTarget}'
+$argsToPass = '${escapedArgs}'
+$workDir = '${escapedWorkDir}'
+
+# If target is a shortcut (.lnk), resolve its actual TargetPath, Arguments, and WorkingDirectory
+if ($target.ToLower().EndsWith('.lnk')) {
+    try {
+        $sh = New-Object -ComObject WScript.Shell
+        $sc = $sh.CreateShortcut($target)
+        if ($sc.TargetPath -and (Test-Path $sc.TargetPath)) {
+            $target = $sc.TargetPath
+            if (-not $argsToPass -and $sc.Arguments) { $argsToPass = $sc.Arguments }
+            if (-not $workDir -and $sc.WorkingDirectory) { $workDir = $sc.WorkingDirectory }
+        }
+    } catch {}
+}
+
+# Ensure working directory points to target's folder if still unset
+if (-not $workDir -and $target -and (Test-Path $target) -and -not (Test-Path $target -PathType Container)) {
+    $workDir = Split-Path $target
+}
+
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName = $target
+if ($argsToPass) { $psi.Arguments = $argsToPass }
+if ($workDir) { $psi.WorkingDirectory = $workDir }
+$psi.UseShellExecute = $true
+
+try {
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $pidNum = if ($p) { $p.Id } else { 0 }
+    Write-Output ("SUCCESS:" + $pidNum + ":" + $target)
+} catch {
+    Write-Error $_.Exception.Message
+    exit 1
+}
+`;
+
+    const encoded = Buffer.from(script, "utf16le").toString("base64");
+    execFile(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+      { windowsHide: true },
+      (err, stdout, stderr) => {
+        if (err) {
+          const errMsg = (stderr || stdout || err.message).trim();
+          return reject(new Error(errMsg));
+        }
+
+        const out = stdout.trim();
+        if (out.includes("SUCCESS:")) {
+          const match = out.match(/SUCCESS:(\d+):(.*)/);
+          const pid = match ? parseInt(match[1], 10) : undefined;
+          const resolvedTarget = match ? match[2] : opts.target;
+          return resolve({ success: true, pid, resolvedTarget });
+        }
+
+        resolve({ success: true, resolvedTarget: opts.target });
+      }
+    );
+  });
+}
+
+/**
+ * Launch an application with verified execution and 0ms latency.
  */
 export async function launchApplication(app: ResolvedApp): Promise<{
   success: boolean;
@@ -293,94 +507,66 @@ export async function launchApplication(app: ResolvedApp): Promise<{
 }> {
   console.log(`[AppResolver] 🚀 Launching application "${app.name}" (Type: ${app.type}, Target: "${app.targetPath}")`);
 
-  // Strategy 1: Shortcut (*.lnk, *.url)
-  if (app.type === "shortcut") {
+  if (process.platform === "win32") {
     try {
-      const subprocess = await open(app.targetPath);
-      if (subprocess && typeof subprocess.unref === "function") {
-        subprocess.unref();
-      }
+      const res = await launchWindowsTarget({
+        target: app.targetPath,
+        arguments: app.arguments,
+        workingDirectory: app.workingDirectory,
+      });
+
       return {
         success: true,
-        message: `Application "${app.name}" launched successfully via shortcut.`,
-        target: app.targetPath,
-        pid: subprocess?.pid,
+        message: `Application "${app.name}" launched successfully.`,
+        target: res.resolvedTarget,
+        pid: res.pid,
       };
     } catch (err: any) {
-      console.warn(`[AppResolver] open(shortcut) failed (${err.message}), falling back to Windows Shell...`);
-      // Windows Shell fallback: cmd.exe /c start "" "<path>"
-      const child = spawn("cmd.exe", ["/c", "start", '""', app.targetPath], {
-        windowsVerbatimArguments: true,
-        detached: true,
-        stdio: "ignore",
-      });
-      child.unref();
-      return {
-        success: true,
-        message: `Application "${app.name}" launched via Windows Shell.`,
-        target: app.targetPath,
-        pid: child.pid,
-      };
+      // Only attempt fallback open if the target actually exists on disk or is a URL/protocol
+      const isUrlOrProtocol = app.targetPath.includes("://") || app.targetPath.startsWith("mailto:") || app.targetPath.startsWith("ms-settings:");
+      if (fs.existsSync(app.targetPath) || isUrlOrProtocol) {
+        console.warn(`[AppResolver] Shell launch failed for "${app.name}", trying fallback open...`);
+        try {
+          const subprocess = await open(app.targetPath);
+          if (subprocess && typeof subprocess.unref === "function") {
+            subprocess.unref();
+          }
+          return {
+            success: true,
+            message: `Application "${app.name}" opened via system fallback.`,
+            target: app.targetPath,
+            pid: subprocess?.pid,
+          };
+        } catch (_innerErr: any) {}
+      }
+
+      // Extract human-readable error from PowerShell CLIXML or standard message
+      let cleanErr = err.message || String(err);
+      const match = cleanErr.match(/Exception calling "Start"[^:]*:\s*"([^"]+)"/);
+      if (match) {
+        cleanErr = match[1];
+      } else if (cleanErr.includes("The system cannot find the file specified")) {
+        cleanErr = "The system cannot find the file specified";
+      }
+
+      throw new Error(`Failed to launch "${app.name}": ${cleanErr}`);
     }
   }
 
-  // Strategy 2: Protocol handler (e.g. ms-settings:, steam:)
-  if (app.type === "protocol") {
+  // Non-Windows (macOS / Linux)
+  if (app.type === "shortcut" || app.type === "protocol") {
     const subprocess = await open(app.targetPath);
     if (subprocess && typeof subprocess.unref === "function") {
       subprocess.unref();
     }
     return {
       success: true,
-      message: `Protocol "${app.targetPath}" invoked successfully.`,
+      message: `Application "${app.name}" launched.`,
       target: app.targetPath,
       pid: subprocess?.pid,
     };
   }
 
-  // Strategy 3: Concrete Executable (*.exe)
-  if (app.type === "executable" && fs.existsSync(app.targetPath)) {
-    const cwd = app.workingDirectory || path.dirname(app.targetPath);
-    try {
-      const child = spawn(app.targetPath, [], {
-        cwd,
-        detached: true,
-        stdio: "ignore",
-        windowsHide: false,
-      });
-
-      child.on("error", (err) => {
-        console.warn(`[AppResolver] Spawn error on ${app.targetPath}:`, err);
-      });
-
-      child.unref();
-
-      return {
-        success: true,
-        message: `Executable "${path.basename(app.targetPath)}" started with working directory "${cwd}".`,
-        target: app.targetPath,
-        pid: child.pid,
-      };
-    } catch (err: any) {
-      console.warn(`[AppResolver] Direct spawn failed (${err.message}), attempting PowerShell Start-Process...`);
-      // PowerShell fallback with proper WorkingDirectory
-      const psCommand = `Start-Process -FilePath '${app.targetPath.replace(/'/g, "''")}' -WorkingDirectory '${cwd.replace(/'/g, "''")}'`;
-      const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", psCommand], {
-        detached: true,
-        stdio: "ignore",
-      });
-      child.unref();
-
-      return {
-        success: true,
-        message: `Executable "${path.basename(app.targetPath)}" launched via PowerShell.`,
-        target: app.targetPath,
-        pid: child.pid,
-      };
-    }
-  }
-
-  // Strategy 4: System application / PATH name fallback
   try {
     const subprocess = await openApp(app.targetPath);
     if (subprocess && typeof subprocess.unref === "function") {
@@ -392,21 +578,16 @@ export async function launchApplication(app: ResolvedApp): Promise<{
       target: app.targetPath,
       pid: subprocess?.pid,
     };
-  } catch (err: any) {
-    console.warn(`[AppResolver] openApp failed (${err.message}), trying direct open...`);
-    try {
-      const subprocess = await open(app.targetPath);
-      if (subprocess && typeof subprocess.unref === "function") {
-        subprocess.unref();
-      }
-      return {
-        success: true,
-        message: `Application "${app.name}" opened.`,
-        target: app.targetPath,
-        pid: subprocess?.pid,
-      };
-    } catch (innerErr: any) {
-      throw new Error(`Failed to launch "${app.name}": ${innerErr.message || innerErr}`);
+  } catch (_err: any) {
+    const subprocess = await open(app.targetPath);
+    if (subprocess && typeof subprocess.unref === "function") {
+      subprocess.unref();
     }
+    return {
+      success: true,
+      message: `Application "${app.name}" opened.`,
+      target: app.targetPath,
+      pid: subprocess?.pid,
+    };
   }
 }
