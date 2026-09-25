@@ -4,9 +4,9 @@ import { pcmToWav } from "./tts.js";
 
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
 
-const STT_PROMPT = `You are a high-accuracy speech-to-text engine.
-Transcribe the spoken audio clip accurately into plain English text.
-Return ONLY the transcription. Do not add commentary, notes, quotes, or timestamps.
+const STT_PROMPT = `You are a high-accuracy multilingual speech-to-text engine.
+Transcribe the spoken audio clip accurately and verbatim in the exact language spoken by the user (supporting English, Tagalog/Filipino, Spanish, Japanese, Chinese, French, German, and all other languages).
+Return ONLY the verbatim transcription in the original language spoken. Do not translate the user's speech, and do not add commentary, notes, quotes, or timestamps.
 If the audio contains only background noise, clicks, or silence, respond with strictly: [SILENCE]`;
 
 export async function transcribeAudio(

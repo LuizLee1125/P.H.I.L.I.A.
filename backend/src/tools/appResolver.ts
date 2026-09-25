@@ -46,9 +46,45 @@ const KNOWN_SYSTEM_ALIASES: Record<string, { target: string; type: "executable" 
   control: { target: "control.exe", type: "system" },
   "control panel": { target: "control.exe", type: "system" },
 
-  // Special Web Services
+  // Special Web Services & Sites
   google: { target: "https://www.google.com", type: "protocol" },
   youtube: { target: "https://www.youtube.com", type: "protocol" },
+  yt: { target: "https://www.youtube.com", type: "protocol" },
+  reddit: { target: "https://www.reddit.com", type: "protocol" },
+  github: { target: "https://github.com", type: "protocol" },
+  twitter: { target: "https://x.com", type: "protocol" },
+  x: { target: "https://x.com", type: "protocol" },
+  twitch: { target: "https://www.twitch.tv", type: "protocol" },
+  netflix: { target: "https://www.netflix.com", type: "protocol" },
+  chatgpt: { target: "https://chatgpt.com", type: "protocol" },
+  gemini: { target: "https://gemini.google.com", type: "protocol" },
+  claude: { target: "https://claude.ai", type: "protocol" },
+  amazon: { target: "https://www.amazon.com", type: "protocol" },
+  wikipedia: { target: "https://www.wikipedia.org", type: "protocol" },
+  gmail: { target: "https://mail.google.com", type: "protocol" },
+  mail: { target: "https://mail.google.com", type: "protocol" },
+  email: { target: "https://mail.google.com", type: "protocol" },
+  outlook: { target: "https://outlook.live.com", type: "protocol" },
+  yahoo: { target: "https://www.yahoo.com", type: "protocol" },
+  bing: { target: "https://www.bing.com", type: "protocol" },
+  duckduckgo: { target: "https://duckduckgo.com", type: "protocol" },
+  facebook: { target: "https://www.facebook.com", type: "protocol" },
+  instagram: { target: "https://www.instagram.com", type: "protocol" },
+  tiktok: { target: "https://www.tiktok.com", type: "protocol" },
+  linkedin: { target: "https://www.linkedin.com", type: "protocol" },
+  pinterest: { target: "https://www.pinterest.com", type: "protocol" },
+  "spotify web": { target: "https://open.spotify.com", type: "protocol" },
+  "discord web": { target: "https://discord.com/app", type: "protocol" },
+  whatsapp: { target: "https://web.whatsapp.com", type: "protocol" },
+  "whatsapp web": { target: "https://web.whatsapp.com", type: "protocol" },
+  messenger: { target: "https://www.messenger.com", type: "protocol" },
+  crunchyroll: { target: "https://www.crunchyroll.com", type: "protocol" },
+  disney: { target: "https://www.disneyplus.com", type: "protocol" },
+  "disney plus": { target: "https://www.disneyplus.com", type: "protocol" },
+  "prime video": { target: "https://www.primevideo.com", type: "protocol" },
+  stackoverflow: { target: "https://stackoverflow.com", type: "protocol" },
+  "stack overflow": { target: "https://stackoverflow.com", type: "protocol" },
+  speedtest: { target: "https://www.speedtest.net", type: "protocol" },
 
   // System Locations
   documents: { target: path.join(os.homedir(), "Documents"), type: "system" },
@@ -290,7 +326,56 @@ export async function resolveApplication(rawQuery: string): Promise<ResolvedApp 
 
   if (!query) return null;
 
-  // 1. Check if user is asking to open their default web browser
+  // 1. Check if query is an explicit web URL (http:// or https://)
+  if (/^https?:\/\//i.test(rawQuery.trim()) || /^https?:\/\//i.test(query)) {
+    const targetUrl = /^https?:\/\//i.test(rawQuery.trim()) ? rawQuery.trim() : query;
+    return {
+      query: rawQuery,
+      name: rawQuery,
+      targetPath: targetUrl,
+      type: "protocol",
+      score: 100,
+    };
+  }
+
+  // 2. Check if query is a web domain (e.g. 'youtube.com', 'reddit.com', 'github.com', 'news.ycombinator.com')
+  const domainPattern = /^(www\.)?[a-z0-9-]+(\.[a-z0-9-]+)*\.(com|org|net|io|dev|ai|co|app|edu|gov|ph|tv|gg|me|info|xyz|tech|online|store|site)(\/.*)?$/i;
+  if (domainPattern.test(query) || domainPattern.test(rawQuery.trim())) {
+    const matched = domainPattern.test(query) ? query : rawQuery.trim();
+    const fullUrl = matched.startsWith("http") ? matched : `https://${matched}`;
+    return {
+      query: rawQuery,
+      name: rawQuery,
+      targetPath: fullUrl,
+      type: "protocol",
+      score: 100,
+    };
+  }
+
+  // 3. Check if query is a web search request (e.g. 'search youtube for lo-fi', 'search google for cats', 'search for weather')
+  const ytSearchMatch = query.match(/^search\s+youtube\s+for\s+(.+)/i);
+  if (ytSearchMatch && ytSearchMatch[1]) {
+    return {
+      query: rawQuery,
+      name: `Search YouTube: "${ytSearchMatch[1]}"`,
+      targetPath: `https://www.youtube.com/results?search_query=${encodeURIComponent(ytSearchMatch[1].trim())}`,
+      type: "protocol",
+      score: 95,
+    };
+  }
+
+  const googleSearchMatch = query.match(/^(search(\s+(google|the\s+web|the\s+internet))?\s+for|google)\s+(.+)/i);
+  if (googleSearchMatch && googleSearchMatch[4]) {
+    return {
+      query: rawQuery,
+      name: `Search: "${googleSearchMatch[4]}"`,
+      targetPath: `https://www.google.com/search?q=${encodeURIComponent(googleSearchMatch[4].trim())}`,
+      type: "protocol",
+      score: 95,
+    };
+  }
+
+  // 4. Check if user is asking to open their default web browser
   const isBrowserQuery = [
     "browser",
     "my browser",
@@ -300,6 +385,9 @@ export async function resolveApplication(rawQuery: string): Promise<ResolvedApp 
     "internet browser",
     "internet",
     "web",
+    "opera",
+    "opera gx",
+    "operagx",
   ].includes(query);
 
   if (isBrowserQuery) {
@@ -317,7 +405,7 @@ export async function resolveApplication(rawQuery: string): Promise<ResolvedApp 
     }
   }
 
-  // 2. Check known system aliases for OS built-ins (calc, notepad, cmd, explorer, etc.)
+  // 5. Check known system aliases for OS built-ins and web services
   if (KNOWN_SYSTEM_ALIASES[query]) {
     const alias = KNOWN_SYSTEM_ALIASES[query];
     return {
@@ -558,6 +646,37 @@ export async function launchApplication(app: ResolvedApp): Promise<{
 }> {
   console.log(`[AppResolver] 🚀 Launching application "${app.name}" (Type: ${app.type}, Target: "${app.targetPath}")`);
 
+  // Protocol or Web URL: open directly with user's default browser and account
+  if (app.type === "protocol" || app.targetPath.includes("://") || app.targetPath.startsWith("mailto:") || app.targetPath.startsWith("ms-settings:")) {
+    console.log(`[AppResolver] 🌐 Opening URL/protocol in user's default browser: "${app.targetPath}"`);
+    try {
+      const subprocess = await open(app.targetPath);
+      if (subprocess && typeof subprocess.unref === "function") {
+        subprocess.unref();
+      }
+      return {
+        success: true,
+        message: `Opened "${app.name}" in your default browser with your active account.`,
+        target: app.targetPath,
+        pid: subprocess?.pid,
+      };
+    } catch (err: unknown) {
+      if (process.platform === "win32") {
+        try {
+          const escaped = app.targetPath.replace(/'/g, "''");
+          execSync(`powershell.exe -NoProfile -Command "Start-Process '${escaped}'"`, { stdio: "ignore" });
+          return {
+            success: true,
+            message: `Opened "${app.name}" in your default browser with your active account.`,
+            target: app.targetPath,
+          };
+        } catch {}
+      }
+      const errMsg = err instanceof Error ? err.message : String(err);
+      throw new Error(`Failed to open "${app.name}": ${errMsg}`);
+    }
+  }
+
   if (process.platform === "win32") {
     try {
       const res = await launchWindowsTarget({
@@ -605,7 +724,7 @@ export async function launchApplication(app: ResolvedApp): Promise<{
   }
 
   // Non-Windows (macOS / Linux)
-  if (app.type === "shortcut" || app.type === "protocol") {
+  if (app.type === "shortcut") {
     const subprocess = await open(app.targetPath);
     if (subprocess && typeof subprocess.unref === "function") {
       subprocess.unref();

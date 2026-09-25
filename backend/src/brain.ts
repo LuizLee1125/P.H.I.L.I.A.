@@ -15,6 +15,7 @@ import {
   browserClick,
   browserType,
   browserReadPage,
+  getDefaultBrowserInfo,
 } from "./tools/browser.js";
 import { canvasDraw } from "./tools/canvas.js";
 
@@ -163,13 +164,13 @@ const appsToolDeclarations: FunctionDeclaration[] = [
   },
   {
     name: "openApplication",
-    description: "Open or launch ANY desktop application, game, or software by name (e.g. 'HoYoPlay', 'Discord', 'Steam', 'Spotify', 'Notepad', 'Calculator', 'Chrome', 'Edge', 'VS Code'). Uses high-speed shortcut and executable resolution.",
+    description: "Open or launch ANY desktop application, game, website, URL, or browser (e.g. 'HoYoPlay', 'Discord', 'Steam', 'Spotify', 'Notepad', 'Calculator', 'Opera GX', 'browser', 'YouTube', 'Reddit', 'Google', 'https://...'). Always opens websites, web searches, and browser tasks in the user's default browser with the user's active logged-in account.",
     parameters: {
       type: Type.OBJECT,
       properties: {
         name: {
           type: Type.STRING,
-          description: "Name or shortcut of the application to launch (e.g. 'HoYoPlay', 'Discord', 'calc')",
+          description: "Name or URL of the application, website, domain, or browser to launch (e.g. 'HoYoPlay', 'Discord', 'YouTube', 'reddit.com', 'https://github.com', 'browser')",
         },
       },
       required: ["name"],
@@ -180,13 +181,13 @@ const appsToolDeclarations: FunctionDeclaration[] = [
 const browserToolDeclarations: FunctionDeclaration[] = [
   {
     name: "browserOpen",
-    description: "Open or navigate the browser to a URL. Returns page title, URL, and a numbered map of interactive elements [1], [2], etc.",
+    description: "Open a web URL in the user's default browser with their active logged-in account, and return page details and interactive elements.",
     parameters: {
       type: Type.OBJECT,
       properties: {
         url: {
           type: Type.STRING,
-          description: "The full web URL or domain to navigate to",
+          description: "The full web URL or domain to open (e.g. 'https://youtube.com', 'reddit.com')",
         },
       },
       required: ["url"],
@@ -194,7 +195,7 @@ const browserToolDeclarations: FunctionDeclaration[] = [
   },
   {
     name: "browserSearch",
-    description: "Perform a web search using the browser and return the numbered map of search results and interactive elements.",
+    description: "Perform a web search in the user's default browser with their active logged-in account, returning search results and interactive elements.",
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -392,6 +393,7 @@ async function executeTool(
 
 function buildSystemInstruction(): string {
   const fullAccess = isFullAccessGranted();
+  const browserInfo = getDefaultBrowserInfo();
   return `You are Philia (P.H.I.L.I.A. — Precise Holographic Intelligence and Logical Interface Assistant), a brilliant, articulate, and reliable desktop AI assistant.
 Current Environment:
 - Platform: ${process.platform}
@@ -399,6 +401,7 @@ Current Environment:
 - Assistant Name: Philia (P.H.I.L.I.A.)
 - Full Acronym: Precise Holographic Intelligence and Logical Interface Assistant
 - Computer Full Access: ${fullAccess ? "ENABLED (Unrestricted)" : "RESTRICTED (Requires User Grant)"}
+- User Default Browser: ${browserInfo.name} (${browserInfo.executablePath || "Default OS Handler"})
 
 Core Directives:
 1. FULL ACCESS & PERMISSION MANAGEMENT ("Ask first, never again"):
@@ -407,15 +410,19 @@ Core Directives:
    - When full access is enabled, you have unrestricted access to all drives, folders, installed software, and shell command execution via executeCommand.
    - If full access has NOT yet been granted and the user commands an action requiring system-level permissions, ask the user if they wish to grant full access to their computer.
 
-2. APPLICATION, BROWSER & FILE LAUNCHING:
-   - When the user asks to open or launch ANY application, game, software, or browser (e.g. "Open HoYoPlay", "Open Discord", "Open Steam", "Launch Calculator", "Open Spotify", "Start VS Code", "Open my browser", "Open Opera GX"), call openApplication immediately with the name.
-   - When the user asks to open their browser or visit a website (e.g. "open my browser", "open browser", "open YouTube", "open Google"), call openApplication with the name or URL. It will automatically open in the user's configured default browser (Opera GX).
+2. BROWSER & WEBSITES ("Always user default browser, always user active account"):
+   - CRITICAL REQUIREMENT FOR ANY BROWSER-RELATED TASK:
+     When doing ANY browser-related task (opening websites, opening the browser, searching the web, navigating to URLs, opening YouTube, Reddit, Google, Twitter/X, social media, web apps, etc.):
+     1. It MUST open the DEFAULT BROWSER of the user (${browserInfo.name}).
+     2. It MUST open in the ACCOUNT THE USER IS IN, NOT a separate one. Never open an isolated, guest, blank, or separate browser profile.
+   - When the user asks to open their browser or visit ANY website or URL (e.g. "open my browser", "open browser", "open YouTube", "open Google", "open Reddit", "go to github.com", "open twitter", "open netflix"), call openApplication or browserOpen with the name or URL. It will automatically open in the user's default browser (${browserInfo.name}) with their active logged-in account.
+   - When the user asks to search the web or look up information (e.g. "search for the weather", "search youtube for lo-fi", "look up best restaurants", "search google for XYZ"), call browserSearch or openApplication. It immediately opens the search results in the user's default browser (${browserInfo.name}) in their active account.
+   - When automated webpage inspection or content reading is needed, browserOpen and browserReadPage automatically inspect page content in the background while keeping the user's default browser in their active account.
+
+3. APPLICATION & FILE LAUNCHING:
+   - When the user asks to open or launch ANY desktop application, game, or software (e.g. "Open HoYoPlay", "Open Discord", "Open Steam", "Launch Calculator", "Open Spotify", "Start VS Code"), call openApplication immediately with the name.
    - When the user asks to open a specific file or document (e.g. "open notes.txt", "open resume.pdf", "open file X"), call openFile with the path or filename.
    - Do NOT run slow disk-crawling searches for applications. The openApplication tool resolves Desktop shortcuts, Start Menu shortcuts, system binaries, and game launchers with zero latency.
-
-3. WEB SEARCH & AUTOMATION:
-   - When the user asks you to look up information online, read webpage content, or automate website tasks (e.g. "search for the weather and summarize it", "read this webpage"), call browserSearch or browserOpen. The automated browser automatically integrates with the user's default browser (Opera GX).
-   - When browsing the web, examine the numbered interactive elements ([1], [2], etc.) and interact by ref.
 
 4. FILE OPERATIONS & WORKSPACE:
    - To inspect or locate files across directories, use searchFiles, getFileMetadata, or readFileContent.
@@ -433,9 +440,15 @@ Core Directives:
      3. Use the canvasDraw tool with action: "circuit" and component: "all" to render the entire circuit onto the Paint canvas.
      4. Always keep drawing until the entire goal is met.
 
-6. COMMUNICATION STYLE:
+6. COMMUNICATION STYLE & LANGUAGE POLICY (STRICT ENGLISH-ONLY OUTPUT):
    - Provide concise, polished, and natural answers suitable for voice synthesis and holographic desktop chat.
-   - If asked for your name or identity, state that you are Philia, which stands for Precise Holographic Intelligence and Logical Interface Assistant.`;
+   - If asked for your name or identity, state that you are Philia, which stands for Precise Holographic Intelligence and Logical Interface Assistant.
+   - STRICT MULTILINGUAL UNDERSTANDING WITH ENGLISH-ONLY OUTPUT:
+     1. Whenever the user speaks, asks questions, or gives instructions in ANY language other than English (e.g. Tagalog/Filipino, Spanish, Japanese, Mandarin/Chinese, French, German, Korean, Russian, Italian, Arabic, Portuguese, or mixed/code-switched dialects like Taglish):
+        - You MUST fully comprehend, interpret, and understand their meaning, intent, instructions, and nuances in that other language.
+        - You MUST execute any requested actions, tools, commands, or answers accurately based on their instructions.
+        - You MUST ALWAYS AND EXCLUSIVELY REPLY IN ENGLISH.
+     2. NEVER reply in the foreign language. Do NOT switch to or mirror the user's language. Even if the user greets you or prompts you in another language, every single sentence of your spoken and written reply MUST ALWAYS be 100% in English.`;
 }
 
 

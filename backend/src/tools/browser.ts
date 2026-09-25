@@ -1,8 +1,9 @@
 import { chromium, type BrowserContext, type Page, type Locator } from "playwright";
 import path from "node:path";
 import fs from "node:fs";
+import os from "node:os";
 import { execSync } from "node:child_process";
-import { config } from "../config.js";
+import open from "open";
 
 export interface InteractiveElement {
   ref: number;
@@ -11,6 +12,13 @@ export interface InteractiveElement {
   text: string;
   locator: Locator;
   isSensitive: boolean;
+}
+
+export interface DefaultBrowserInfo {
+  name: string;
+  executablePath: string | null;
+  progId: string | null;
+  profileDir: string | null;
 }
 
 export type BrowserConfirmationHandler = (actionDescription: string) => Promise<boolean> | boolean;
@@ -28,27 +36,19 @@ let browserContext: BrowserContext | null = null;
 let activePage: Page | null = null;
 const currentElementMap = new Map<number, InteractiveElement>();
 
-const USER_DATA_DIR = path.resolve(process.cwd(), "browser_profile");
-
-function cleanStaleProfileLocks(profileDir: string) {
-  try {
-    const lockFiles = ["lockfile", "SingletonLock", "SingletonCookie", "SingletonSocket"];
-    for (const f of lockFiles) {
-      const fullPath = path.join(profileDir, f);
-      if (fs.existsSync(fullPath)) {
-        try {
-          fs.unlinkSync(fullPath);
-          console.log(`[Browser] 🧹 Cleared stale profile lock: ${f}`);
-        } catch {}
-      }
-    }
-  } catch {}
-}
-
 /**
- * Detect the user's default browser executable on the system.
+ * Detect the user's default browser on the system along with executable and profile path.
  */
-export function getDefaultBrowserExecutable(): string | null {
+export function getDefaultBrowserInfo(): DefaultBrowserInfo {
+  let executablePath: string | null = null;
+  let progId: string | null = null;
+  let name = "Default Browser";
+  let profileDir: string | null = null;
+
+  const home = os.homedir();
+  const appData = process.env.APPDATA || path.join(home, "AppData", "Roaming");
+  const localAppData = process.env.LOCALAPPDATA || path.join(home, "AppData", "Local");
+
   if (process.platform === "win32") {
     try {
       const progIdOut = execSync(
@@ -57,116 +57,143 @@ export function getDefaultBrowserExecutable(): string | null {
       );
       const progIdMatch = progIdOut.match(/ProgId\s+REG_\w+\s+([^\r\n]+)/);
       if (progIdMatch && progIdMatch[1]) {
-        const progId = progIdMatch[1].trim();
+        progId = progIdMatch[1].trim();
         const cmdOut = execSync(
           `reg query "HKEY_CLASSES_ROOT\\${progId}\\shell\\open\\command" /ve`,
           { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
         );
         const match = cmdOut.match(/REG_\w+\s+"?([^"\r\n]+?\.exe)"?/i);
         if (match && match[1] && fs.existsSync(match[1])) {
-          return match[1];
+          executablePath = match[1];
         }
       }
     } catch {}
   }
-  return null;
+
+  // Derive human-readable name & user data directory
+  const lowerExe = (executablePath || "").toLowerCase();
+  const lowerProg = (progId || "").toLowerCase();
+
+  if (lowerProg.includes("operagx") || lowerExe.includes("opera gx")) {
+    name = "Opera GX";
+    profileDir = path.join(appData, "Opera Software", "Opera GX Stable");
+  } else if (lowerProg.includes("opera") || lowerExe.includes("opera")) {
+    name = "Opera";
+    profileDir = path.join(appData, "Opera Software", "Opera Stable");
+  } else if (lowerProg.includes("chrome") || lowerExe.includes("chrome")) {
+    name = "Google Chrome";
+    profileDir = path.join(localAppData, "Google", "Chrome", "User Data");
+  } else if (lowerProg.includes("edge") || lowerExe.includes("msedge")) {
+    name = "Microsoft Edge";
+    profileDir = path.join(localAppData, "Microsoft", "Edge", "User Data");
+  } else if (lowerProg.includes("brave") || lowerExe.includes("brave")) {
+    name = "Brave";
+    profileDir = path.join(localAppData, "BraveSoftware", "Brave-Browser", "User Data");
+  } else if (lowerProg.includes("firefox") || lowerExe.includes("firefox")) {
+    name = "Mozilla Firefox";
+    profileDir = path.join(appData, "Mozilla", "Firefox", "Profiles");
+  } else if (executablePath) {
+    name = path.basename(executablePath, ".exe");
+  }
+
+  return { name, executablePath, progId, profileDir };
 }
 
 /**
- * Ensures Playwright dedicated profile exists and browser context is launched.
- * Uses the user's configured default browser (e.g. Opera GX, Chrome, Edge, Brave) when available.
+ * Detect the user's default browser executable on the system.
+ */
+export function getDefaultBrowserExecutable(): string | null {
+  return getDefaultBrowserInfo().executablePath;
+}
+
+/**
+ * Open a URL directly in the user's default browser in the user's active session and account.
+ * Uses native OS shell association to guarantee opening in the active browser window with logged-in user accounts.
+ */
+export async function openInUserDefaultBrowser(url: string): Promise<{
+  success: boolean;
+  message: string;
+  url: string;
+  browser: string;
+}> {
+  let targetUrl = url.trim();
+  if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://") && !targetUrl.includes("://")) {
+    targetUrl = "https://" + targetUrl;
+  }
+
+  const browserInfo = getDefaultBrowserInfo();
+  console.log(`[Browser] 🌐 Opening URL in user's default browser (${browserInfo.name}) with active account: "${targetUrl}"`);
+
+  try {
+    const subprocess = await open(targetUrl);
+    if (subprocess && typeof subprocess.unref === "function") {
+      subprocess.unref();
+    }
+    return {
+      success: true,
+      message: `Opened "${targetUrl}" in your default browser (${browserInfo.name}) with your active account.`,
+      url: targetUrl,
+      browser: browserInfo.name,
+    };
+  } catch (err: unknown) {
+    if (process.platform === "win32") {
+      try {
+        const escaped = targetUrl.replace(/'/g, "''");
+        execSync(`powershell.exe -NoProfile -Command "Start-Process '${escaped}'"`, { stdio: "ignore" });
+        return {
+          success: true,
+          message: `Opened "${targetUrl}" in your default browser (${browserInfo.name}) with your active account.`,
+          url: targetUrl,
+          browser: browserInfo.name,
+        };
+      } catch (psErr: unknown) {
+        const msg = psErr instanceof Error ? psErr.message : String(psErr);
+        const origMsg = err instanceof Error ? err.message : String(err);
+        throw new Error(`Failed to open "${targetUrl}" in default browser: ${msg || origMsg}`);
+      }
+    }
+    throw err;
+  }
+}
+
+/**
+ * Ensures background headless Playwright browser context is available for inspecting pages,
+ * without showing any separate visible window on the user's screen.
  */
 export async function getOrCreateBrowser(): Promise<{ context: BrowserContext; page: Page }> {
   if (browserContext && activePage && !activePage.isClosed()) {
     return { context: browserContext, page: activePage };
   }
 
-  if (!fs.existsSync(USER_DATA_DIR)) {
-    fs.mkdirSync(USER_DATA_DIR, { recursive: true });
-  }
-
-  cleanStaleProfileLocks(USER_DATA_DIR);
-
-  const defaultBrowserExe = getDefaultBrowserExecutable();
-  console.log(`[Browser] 🌐 Launching browser (Headless: ${config.browserHeadless}, Profile: "${USER_DATA_DIR}", Browser: "${defaultBrowserExe || "Bundled Chromium"}")`);
-
-  const launchOptions: any = {
-    headless: config.browserHeadless,
-    viewport: { width: 1280, height: 800 },
-    args: ["--disable-blink-features=AutomationControlled"],
-  };
-
-  if (defaultBrowserExe) {
-    launchOptions.executablePath = defaultBrowserExe;
-  }
-
   try {
-    browserContext = await chromium.launchPersistentContext(USER_DATA_DIR, launchOptions);
-  } catch (err: any) {
-    console.warn(`[Browser] Initial browser launch failed (${err.message}). Handling fallback / cleanup...`);
-
-    // If launching with default browser failed, attempt falling back to bundled Chromium
-    if (launchOptions.executablePath) {
-      console.warn(`[Browser] ⚠️ Retrying with bundled Chromium instead of "${launchOptions.executablePath}"...`);
-      delete launchOptions.executablePath;
-      try {
-        browserContext = await chromium.launchPersistentContext(USER_DATA_DIR, launchOptions);
-        const pages = browserContext.pages();
-        activePage = pages.length > 0 ? pages[0] : await browserContext.newPage();
-        activePage.on("close", () => {
-          activePage = null;
-          currentElementMap.clear();
-        });
-        return { context: browserContext, page: activePage };
-      } catch {}
-    }
-
-    const isLockError = err.message && (
-      err.message.includes("ProcessSingleton") ||
-      err.message.includes("Lock file") ||
-      err.message.includes("EBUSY") ||
-      err.message.includes("already in use")
-    );
-
-    if (isLockError) {
-      console.warn(`[Browser] ⚠️ Profile directory is locked (${err.message}). Terminating orphaned browser processes and cleaning locks...`);
-      cleanStaleProfileLocks(USER_DATA_DIR);
-
-      if (process.platform === "win32") {
-        try {
-          execSync('powershell.exe -NoProfile -Command "Get-Process chrome,opera -ErrorAction SilentlyContinue | Where-Object { $_.Path -like \'*browser_profile*\' -or $_.Path -like \'*ms-playwright*\' } | Stop-Process -Force"', { stdio: "ignore" });
-        } catch {}
-      }
-
-      await new Promise((r) => setTimeout(r, 600));
-      cleanStaleProfileLocks(USER_DATA_DIR);
-
-      try {
-        browserContext = await chromium.launchPersistentContext(USER_DATA_DIR, launchOptions);
-      } catch (retryErr: any) {
-        console.warn(`[Browser] ⚠️ Persistent profile retry failed (${retryErr.message}). Launching isolated browser context...`);
-        const standalone = await chromium.launch({
-          headless: config.browserHeadless,
-          args: ["--disable-blink-features=AutomationControlled"],
-        });
-        browserContext = await standalone.newContext({
-          viewport: { width: 1280, height: 800 },
-        }) as any;
-      }
-    } else {
-      throw err;
-    }
+    const standalone = await chromium.launch({
+      headless: true, // Always headless so no separate window is displayed
+      args: ["--disable-blink-features=AutomationControlled", "--no-sandbox"],
+    });
+    browserContext = await standalone.newContext({
+      viewport: { width: 1280, height: 800 },
+    });
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.warn(`[Browser] Background headless browser launch notice: ${errMsg}`);
+    const standalone = await chromium.launch({
+      headless: true,
+      args: ["--no-sandbox"],
+    });
+    browserContext = await standalone.newContext({
+      viewport: { width: 1280, height: 800 },
+    });
   }
 
-  const pages = browserContext!.pages();
-  activePage = pages.length > 0 ? pages[0] : await browserContext!.newPage();
+  const pages = browserContext.pages();
+  activePage = pages.length > 0 ? pages[0] : await browserContext.newPage();
 
   activePage.on("close", () => {
     activePage = null;
     currentElementMap.clear();
   });
 
-  return { context: browserContext!, page: activePage };
+  return { context: browserContext, page: activePage };
 }
 
 function isSensitivePage(title: string, url: string, bodyText: string): boolean {
@@ -257,25 +284,36 @@ export async function enumerateInteractiveElements(page: Page): Promise<string> 
     (elementsSummary.length > 0 ? elementsSummary.join("\n") : "(No interactive elements detected)");
 }
 
+/**
+ * Open a URL in the user's default browser with their active logged-in account,
+ * and inspect page content for Philia.
+ */
 export async function browserOpen(url: string): Promise<string> {
-  let targetUrl = url;
-  if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
+  let targetUrl = url.trim();
+  if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://") && !targetUrl.includes("://")) {
     targetUrl = "https://" + targetUrl;
   }
 
-  console.log(`[Browser] 🌐 Navigating to "${targetUrl}"...`);
-  const { page } = await getOrCreateBrowser();
+  // 1. Immediately open the URL in the user's default browser in the user's active account
+  const launchResult = await openInUserDefaultBrowser(targetUrl);
 
+  // 2. Fetch/inspect page content in background for Philia's response
   try {
-    await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
+    const { page } = await getOrCreateBrowser();
+    await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 20000 });
     await page.waitForTimeout(1000);
-  } catch (err) {
-    console.warn(`[Browser] Navigation timeout/warning: ${err}`);
+    const elements = await enumerateInteractiveElements(page);
+    return `${launchResult.message}\n\n${elements}`;
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.warn(`[Browser] Background page inspection note: ${errMsg}`);
+    return `${launchResult.message}\n(Page opened successfully in your active default browser window).`;
   }
-
-  return await enumerateInteractiveElements(page);
 }
 
+/**
+ * Perform a web search using the user's default browser with their active account.
+ */
 export async function browserSearch(query: string): Promise<string> {
   console.log(`[Browser] 🔍 browserSearch(query="${query}")`);
   const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
@@ -343,7 +381,7 @@ export async function browserReadPage(): Promise<string> {
 
 export async function browserClose(): Promise<void> {
   if (browserContext) {
-    console.log(`[Browser] 🛑 Closing browser context...`);
+    console.log(`[Browser] 🛑 Closing background browser context...`);
     await browserContext.close().catch(() => {});
     browserContext = null;
     activePage = null;
