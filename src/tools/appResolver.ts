@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { execFile } from "node:child_process";
+import { execFile, execSync } from "node:child_process";
 import open, { openApp } from "open";
 
 export interface ResolvedApp {
@@ -46,10 +46,7 @@ const KNOWN_SYSTEM_ALIASES: Record<string, { target: string; type: "executable" 
   control: { target: "control.exe", type: "system" },
   "control panel": { target: "control.exe", type: "system" },
 
-  // Browsers & Web
-  browser: { target: "https://www.google.com", type: "protocol" },
-  "web browser": { target: "https://www.google.com", type: "protocol" },
-  "my browser": { target: "https://www.google.com", type: "protocol" },
+  // Special Web Services
   google: { target: "https://www.google.com", type: "protocol" },
   youtube: { target: "https://www.youtube.com", type: "protocol" },
 
@@ -58,6 +55,33 @@ const KNOWN_SYSTEM_ALIASES: Record<string, { target: string; type: "executable" 
   downloads: { target: path.join(os.homedir(), "Downloads"), type: "system" },
   desktop: { target: path.join(os.homedir(), "Desktop"), type: "system" },
 };
+
+/**
+ * Detect the user's default browser executable on Windows (e.g. Opera GX, Chrome, Edge, Brave).
+ */
+export function getDefaultBrowserExecutable(): string | null {
+  if (process.platform === "win32") {
+    try {
+      const progIdOut = execSync(
+        'reg query "HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice" /v ProgId',
+        { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+      );
+      const progIdMatch = progIdOut.match(/ProgId\s+REG_\w+\s+([^\r\n]+)/);
+      if (progIdMatch && progIdMatch[1]) {
+        const progId = progIdMatch[1].trim();
+        const cmdOut = execSync(
+          `reg query "HKEY_CLASSES_ROOT\\${progId}\\shell\\open\\command" /ve`,
+          { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+        );
+        const match = cmdOut.match(/REG_\w+\s+"?([^"\r\n]+?\.exe)"?/i);
+        if (match && match[1] && fs.existsSync(match[1])) {
+          return match[1];
+        }
+      }
+    } catch {}
+  }
+  return null;
+}
 
 // Common aliases mapping casual names to expected shortcut terms
 const ALIAS_NORMALIZATION: Record<string, string[]> = {
@@ -266,7 +290,34 @@ export async function resolveApplication(rawQuery: string): Promise<ResolvedApp 
 
   if (!query) return null;
 
-  // 1. Check known system aliases for OS built-ins (calc, notepad, cmd, explorer, etc.)
+  // 1. Check if user is asking to open their default web browser
+  const isBrowserQuery = [
+    "browser",
+    "my browser",
+    "the browser",
+    "web browser",
+    "default browser",
+    "internet browser",
+    "internet",
+    "web",
+  ].includes(query);
+
+  if (isBrowserQuery) {
+    const defaultBrowser = getDefaultBrowserExecutable();
+    if (defaultBrowser && fs.existsSync(defaultBrowser)) {
+      const browserBaseName = path.basename(defaultBrowser, ".exe");
+      return {
+        query: rawQuery,
+        name: browserBaseName.toLowerCase() === "opera" ? "Opera GX" : browserBaseName,
+        targetPath: defaultBrowser,
+        type: "executable",
+        workingDirectory: path.dirname(defaultBrowser),
+        score: 100,
+      };
+    }
+  }
+
+  // 2. Check known system aliases for OS built-ins (calc, notepad, cmd, explorer, etc.)
   if (KNOWN_SYSTEM_ALIASES[query]) {
     const alias = KNOWN_SYSTEM_ALIASES[query];
     return {
@@ -537,7 +588,7 @@ export async function launchApplication(app: ResolvedApp): Promise<{
             target: app.targetPath,
             pid: subprocess?.pid,
           };
-        } catch (_innerErr: any) {}
+        } catch {}
       }
 
       // Extract human-readable error from PowerShell CLIXML or standard message

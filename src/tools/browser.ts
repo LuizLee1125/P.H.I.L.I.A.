@@ -46,7 +46,35 @@ function cleanStaleProfileLocks(profileDir: string) {
 }
 
 /**
+ * Detect the user's default browser executable on the system.
+ */
+export function getDefaultBrowserExecutable(): string | null {
+  if (process.platform === "win32") {
+    try {
+      const progIdOut = execSync(
+        'reg query "HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice" /v ProgId',
+        { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+      );
+      const progIdMatch = progIdOut.match(/ProgId\s+REG_\w+\s+([^\r\n]+)/);
+      if (progIdMatch && progIdMatch[1]) {
+        const progId = progIdMatch[1].trim();
+        const cmdOut = execSync(
+          `reg query "HKEY_CLASSES_ROOT\\${progId}\\shell\\open\\command" /ve`,
+          { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
+        );
+        const match = cmdOut.match(/REG_\w+\s+"?([^"\r\n]+?\.exe)"?/i);
+        if (match && match[1] && fs.existsSync(match[1])) {
+          return match[1];
+        }
+      }
+    } catch {}
+  }
+  return null;
+}
+
+/**
  * Ensures Playwright dedicated profile exists and browser context is launched.
+ * Uses the user's configured default browser (e.g. Opera GX, Chrome, Edge, Brave) when available.
  */
 export async function getOrCreateBrowser(): Promise<{ context: BrowserContext; page: Page }> {
   if (browserContext && activePage && !activePage.isClosed()) {
@@ -59,15 +87,40 @@ export async function getOrCreateBrowser(): Promise<{ context: BrowserContext; p
 
   cleanStaleProfileLocks(USER_DATA_DIR);
 
-  console.log(`[Browser] 🌐 Launching browser (Headless: ${config.browserHeadless}, Profile: "${USER_DATA_DIR}")`);
+  const defaultBrowserExe = getDefaultBrowserExecutable();
+  console.log(`[Browser] 🌐 Launching browser (Headless: ${config.browserHeadless}, Profile: "${USER_DATA_DIR}", Browser: "${defaultBrowserExe || "Bundled Chromium"}")`);
+
+  const launchOptions: any = {
+    headless: config.browserHeadless,
+    viewport: { width: 1280, height: 800 },
+    args: ["--disable-blink-features=AutomationControlled"],
+  };
+
+  if (defaultBrowserExe) {
+    launchOptions.executablePath = defaultBrowserExe;
+  }
 
   try {
-    browserContext = await chromium.launchPersistentContext(USER_DATA_DIR, {
-      headless: config.browserHeadless,
-      viewport: { width: 1280, height: 800 },
-      args: ["--disable-blink-features=AutomationControlled"],
-    });
+    browserContext = await chromium.launchPersistentContext(USER_DATA_DIR, launchOptions);
   } catch (err: any) {
+    console.warn(`[Browser] Initial browser launch failed (${err.message}). Handling fallback / cleanup...`);
+
+    // If launching with default browser failed, attempt falling back to bundled Chromium
+    if (launchOptions.executablePath) {
+      console.warn(`[Browser] ⚠️ Retrying with bundled Chromium instead of "${launchOptions.executablePath}"...`);
+      delete launchOptions.executablePath;
+      try {
+        browserContext = await chromium.launchPersistentContext(USER_DATA_DIR, launchOptions);
+        const pages = browserContext.pages();
+        activePage = pages.length > 0 ? pages[0] : await browserContext.newPage();
+        activePage.on("close", () => {
+          activePage = null;
+          currentElementMap.clear();
+        });
+        return { context: browserContext, page: activePage };
+      } catch {}
+    }
+
     const isLockError = err.message && (
       err.message.includes("ProcessSingleton") ||
       err.message.includes("Lock file") ||
@@ -81,7 +134,7 @@ export async function getOrCreateBrowser(): Promise<{ context: BrowserContext; p
 
       if (process.platform === "win32") {
         try {
-          execSync('powershell.exe -NoProfile -Command "Get-Process chrome -ErrorAction SilentlyContinue | Where-Object { $_.Path -like \'*ms-playwright*\' } | Stop-Process -Force"', { stdio: "ignore" });
+          execSync('powershell.exe -NoProfile -Command "Get-Process chrome,opera -ErrorAction SilentlyContinue | Where-Object { $_.Path -like \'*browser_profile*\' -or $_.Path -like \'*ms-playwright*\' } | Stop-Process -Force"', { stdio: "ignore" });
         } catch {}
       }
 
@@ -89,11 +142,7 @@ export async function getOrCreateBrowser(): Promise<{ context: BrowserContext; p
       cleanStaleProfileLocks(USER_DATA_DIR);
 
       try {
-        browserContext = await chromium.launchPersistentContext(USER_DATA_DIR, {
-          headless: config.browserHeadless,
-          viewport: { width: 1280, height: 800 },
-          args: ["--disable-blink-features=AutomationControlled"],
-        });
+        browserContext = await chromium.launchPersistentContext(USER_DATA_DIR, launchOptions);
       } catch (retryErr: any) {
         console.warn(`[Browser] ⚠️ Persistent profile retry failed (${retryErr.message}). Launching isolated browser context...`);
         const standalone = await chromium.launch({
