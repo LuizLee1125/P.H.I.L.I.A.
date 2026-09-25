@@ -50,6 +50,10 @@ flowchart LR
    - Requires explicit terminal confirmation before modifying or deleting.
 6. **Holographic Desktop UI**:
    - Futuristic neon glassmorphic HUD with Arc-Reactor voice core, live chat, waveform animation, and compact minimized pill mode.
+7. **Screen Perception & Vision (`inspectScreen`)**:
+   - Real-time multimodal desktop screen perception using Gemini Vision.
+   - Philia can see, read, and understand whatever is currently on your monitor: open windows, active applications, code, text, documents, websites, and error messages.
+   - Seamlessly conversational: triggers automatically when saying or typing natural phrases like "at my screen", "look at my screen", or "what's on my display". No buttons or special commands needed.
 
 ---
 

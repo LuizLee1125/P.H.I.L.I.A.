@@ -106,6 +106,10 @@ interface ServerEventData {
   tool?: string;
   fullAccessGranted?: boolean;
   fullAccessRequired?: boolean;
+  analysis?: string;
+  hasImage?: boolean;
+  thumbnailBase64?: string;
+  query?: string;
 }
 
 function handleServerEvent(event: ServerEventData) {
@@ -145,11 +149,24 @@ function handleServerEvent(event: ServerEventData) {
       break;
 
     case "tool_start":
-      showActivity(`Running tool: ${event.tool}...`);
+      if (event.tool === "inspectScreen") {
+        showActivity("Inspecting screen with vision...");
+      } else {
+        showActivity(`Running tool: ${event.tool}...`);
+      }
       break;
 
     case "tool_done":
       showActivity(`Completed: ${event.tool}`);
+      break;
+
+    case "screen_inspected":
+      hideActivity();
+      setVoiceState("idle", "Tap to Speak");
+      if (event.analysis) {
+        const thumb = event.thumbnailBase64 ? `data:image/jpeg;base64,${event.thumbnailBase64}` : undefined;
+        appendAssistantMessage(event.analysis, [{ tool: "inspectScreen" }], thumb);
+      }
       break;
 
     case "user_command":
@@ -231,7 +248,11 @@ interface ToolExecutionInfo {
   result?: unknown;
 }
 
-function appendAssistantMessage(text: string, toolsUsed: ToolExecutionInfo[] = []) {
+function appendAssistantMessage(
+  text: string,
+  toolsUsed: ToolExecutionInfo[] = [],
+  thumbnailUrl?: string
+) {
   const lastMsg = chatMessages.lastElementChild;
   if (lastMsg && lastMsg.classList.contains("assistant-message") && lastMsg.textContent === text) {
     return;
@@ -255,11 +276,42 @@ function appendAssistantMessage(text: string, toolsUsed: ToolExecutionInfo[] = [
     .replace(/\n/g, "<br>");
   contentDiv.innerHTML = `<p>${formatted}</p>`;
 
+  // Display screen vision preview card if a snapshot was captured
+  if (thumbnailUrl) {
+    const previewCard = document.createElement("div");
+    previewCard.className = "screen-preview-card";
+    previewCard.innerHTML = `
+      <div class="screen-preview-header">
+        <span>📸 Screen Captured</span>
+        <span class="preview-badge">DESKTOP VISION</span>
+      </div>
+      <div class="screen-preview-body">
+        <img src="${thumbnailUrl}" alt="Captured Screen" class="screen-preview-img" />
+        <span class="screen-preview-hint">Click to enlarge</span>
+      </div>
+    `;
+    const previewBody = previewCard.querySelector(".screen-preview-body");
+    previewBody?.addEventListener("click", () => {
+      const w = window.open("");
+      w?.document.write(`
+        <!DOCTYPE html>
+        <html style="background:#050811;margin:0;padding:20px;display:flex;justify-content:center;">
+          <head><title>Philia Screen Vision Snapshot</title></head>
+          <body style="margin:0;">
+            <img src="${thumbnailUrl}" style="max-width:100%;height:auto;border-radius:8px;box-shadow:0 0 30px rgba(0,240,255,0.3);border:1px solid rgba(0,240,255,0.3);" />
+          </body>
+        </html>
+      `);
+    });
+    contentDiv.appendChild(previewCard);
+  }
+
   if (toolsUsed && toolsUsed.length > 0) {
     for (const tool of toolsUsed) {
       const chip = document.createElement("div");
       chip.className = "tool-chip";
-      chip.innerHTML = `<span>⚡</span> <span>${tool.tool}</span>`;
+      const icon = tool.tool === "inspectScreen" ? "📸" : "⚡";
+      chip.innerHTML = `<span>${icon}</span> <span>${tool.tool}</span>`;
       contentDiv.appendChild(chip);
     }
   }
@@ -298,7 +350,12 @@ async function sendCommand(prompt: string) {
     setVoiceState("idle", "Tap to Speak");
 
     if (data.reply) {
-      appendAssistantMessage(data.reply, data.toolsUsed);
+      // Check if inspectScreen was executed and retrieve the captured thumbnail
+      const screenTool = data.toolsUsed?.find((t: any) => t.tool === "inspectScreen");
+      const thumb = screenTool?.result?.thumbnailBase64
+        ? `data:image/jpeg;base64,${screenTool.result.thumbnailBase64}`
+        : undefined;
+      appendAssistantMessage(data.reply, data.toolsUsed, thumb);
     }
   } catch {
     hideActivity();
@@ -409,6 +466,14 @@ pillRestoreBtn.addEventListener("click", () => {
   mainWindow.classList.remove("hidden");
   minimizedWidget.classList.add("hidden");
 });
+
+async function inspectCurrentScreen(customPrompt?: string) {
+  if (isBusy) return;
+  const promptText = customPrompt || "Inspect what is currently on my screen and tell me what you see";
+  await sendCommand(promptText);
+}
+
+
 
 async function checkBackendStatus(): Promise<boolean> {
   try {

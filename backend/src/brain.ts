@@ -18,6 +18,7 @@ import {
   getDefaultBrowserInfo,
 } from "./tools/browser.js";
 import { canvasDraw } from "./tools/canvas.js";
+import { inspectScreen } from "./tools/screen.js";
 
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
 
@@ -274,6 +275,22 @@ const canvasToolDeclarations: FunctionDeclaration[] = [
   },
 ];
 
+const screenToolDeclarations: FunctionDeclaration[] = [
+  {
+    name: "inspectScreen",
+    description: "Capture a screenshot and visually read/inspect what is currently on the user's computer screen/desktop using real-time multimodal vision. Call this whenever the user asks 'what is on my screen?', 'can you read my screen?', 'look at my screen', 'what am I looking at?', 'read the text/code on my screen', 'diagnose this error on my screen', or asks about any open windows, apps, diagrams, or content displayed on their monitor.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        query: {
+          type: Type.STRING,
+          description: "Optional specific question or prompt about what to inspect on screen (e.g. 'What error is shown?', 'Read the code in the editor', 'What apps are open?')",
+        },
+      },
+    },
+  },
+];
+
 const allTools = [
   {
     functionDeclarations: [
@@ -283,6 +300,7 @@ const allTools = [
       ...appsToolDeclarations,
       ...browserToolDeclarations,
       ...canvasToolDeclarations,
+      ...screenToolDeclarations,
     ],
   },
 ];
@@ -365,6 +383,15 @@ async function executeTool(
       case "canvasDraw":
         result = await canvasDraw(args);
         break;
+      case "inspectScreen":
+        result = await inspectScreen(args.query, (status) => {
+          onStatus?.({
+            type: "thinking",
+            tool: "inspectScreen",
+            message: status,
+          });
+        });
+        break;
       default:
         throw new Error(`Tool "${name}" is not recognized.`);
     }
@@ -389,6 +416,39 @@ async function executeTool(
       message: err.message || String(err),
     };
   }
+}
+
+/**
+ * Detect if the user's spoken or typed prompt asks Philia to inspect or check their screen.
+ * Triggers on natural phrases like "at my screen", "look at my screen", "what's on my screen", etc.
+ */
+export function isScreenInspectionRequest(text: string): boolean {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+
+  if (
+    lower.includes("at my screen") ||
+    lower.includes("on my screen") ||
+    lower.includes("at the screen") ||
+    lower.includes("on the screen")
+  ) {
+    return true;
+  }
+
+  if (
+    lower.includes("my display") ||
+    lower.includes("my monitor") ||
+    lower.includes("my screen") ||
+    lower.includes("the screen")
+  ) {
+    if (
+      /look|see|check|read|inspect|view|what|describe|tell|summarize|diagnose|error|show|glance/i.test(lower)
+    ) {
+      return true;
+    }
+  }
+
+  return /(?:at|on|check|read|look|see|inspect|view|summarize|diagnose|examine)\s+(?:what(?:'s|\s+is)\s+)?(?:on\s+)?(?:my|the|this)?\s*(?:screen|display|monitor)/i.test(lower);
 }
 
 function buildSystemInstruction(): string {
@@ -448,7 +508,13 @@ Core Directives:
         - You MUST fully comprehend, interpret, and understand their meaning, intent, instructions, and nuances in that other language.
         - You MUST execute any requested actions, tools, commands, or answers accurately based on their instructions.
         - You MUST ALWAYS AND EXCLUSIVELY REPLY IN ENGLISH.
-     2. NEVER reply in the foreign language. Do NOT switch to or mirror the user's language. Even if the user greets you or prompts you in another language, every single sentence of your spoken and written reply MUST ALWAYS be 100% in English.`;
+     2. NEVER reply in the foreign language. Do NOT switch to or mirror the user's language. Even if the user greets you or prompts you in another language, every single sentence of your spoken and written reply MUST ALWAYS be 100% in English.
+
+7. SCREEN PERCEPTION & VISION ("at my screen", "look at my screen", "what's on my screen"):
+   - When the user says or types phrases like "at my screen", "look at my screen", "take a look at my screen", "what is currently on my screen", "check my screen", "read my screen", "see my screen", or asks any question about their screen/display/monitor, you MUST IMMEDIATELY call the inspectScreen tool.
+   - This is purely conversational and seamless: the user does not need to click any button or type a specific command. Saying or typing "at my screen" triggers your desktop vision immediately.
+   - NEVER tell the user that you cannot see their screen or that you do not have visual access. You possess real-time multimodal desktop vision through inspectScreen.
+   - Base your answer directly on the visual analysis returned by inspectScreen and explain what you see with clarity and precision.`;
 }
 
 
@@ -547,7 +613,9 @@ export class PhiliaBrain {
     const maxIterations = 30;
     let iteration = 0;
     let goalRetryCount = 0;
+    let screenRetryCount = 0;
     const isDrawingGoal = /draw|circuit|paint|sketch|schematic|diagram/i.test(prompt);
+    const isScreenGoal = isScreenInspectionRequest(prompt);
 
     while (iteration < maxIterations) {
       if (response.functionCalls && response.functionCalls.length > 0) {
@@ -593,6 +661,32 @@ export class PhiliaBrain {
 
         response = await this.sendWithRetry({
           message: `[System Goal Directive]: The user asked: "${prompt}". Paint is active, but the full drawing is not yet completed. You must NOT stop until the entire goal is met! Use the canvasDraw tool with action: "circuit" and component: "all" to render the complete circuit onto the canvas now.`,
+        });
+        continue;
+      }
+
+      // Check if user request is asking to inspect or check their screen, but inspectScreen has not been called yet
+      const screenInspected = toolsUsed.some((t) => t.tool === "inspectScreen");
+      if (isScreenGoal && !screenInspected && screenRetryCount < 2) {
+        screenRetryCount++;
+        iteration++;
+        console.log(`[Philia Brain] 🖥️ Screen check requested: "${prompt}". Proactively executing inspectScreen...`);
+        onStatus?.({
+          type: "thinking",
+          tool: "inspectScreen",
+          message: "Checking your screen...",
+        });
+
+        const screenResult = await executeTool("inspectScreen", { query: prompt }, onStatus);
+        toolsUsed.push({ tool: "inspectScreen", args: { query: prompt }, result: screenResult });
+
+        response = await this.sendWithRetry({
+          message: `[System Vision Directive]: The user asked/commanded: "${prompt}". Philia captured and visually analyzed what is currently on the user's screen.
+Vision Inspection Analysis:
+"""
+${screenResult.analysis}
+"""
+Now, answer the user's request ("${prompt}") directly and articulately based on what is displayed on their screen.`,
         });
         continue;
       }
