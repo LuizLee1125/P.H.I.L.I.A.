@@ -11,6 +11,7 @@ import {
 } from "../src/permissions.js";
 import { PhiliaBrain } from "../src/brain.js";
 import { pcmToWav } from "../src/tts.js";
+import { canvasDraw } from "../src/tools/canvas.js";
 
 async function runTests() {
   console.log("=========================================");
@@ -109,7 +110,17 @@ async function runTests() {
     assert.strictEqual(wav.subarray(8, 12).toString(), "WAVE");
   });
 
-  // 7. Brain Processing with Gemini
+  // 7. Canvas Drawing Tool
+  await test("Canvas: canvasDraw executes and draws circuit diagram", async () => {
+    const res = await canvasDraw({ action: "circuit", component: "all" });
+    assert.strictEqual(res.success, true);
+    assert.strictEqual(res.isGoalMet, true);
+    assert.ok(res.componentsDrawn.includes("battery"));
+    assert.ok(res.componentsDrawn.includes("resistor_zigzag"));
+    assert.ok(res.componentsDrawn.includes("wires_closed_loop"));
+  });
+
+  // 8. Brain Processing with Gemini
   await test("Brain: processes query and returns structured reply", async () => {
     const brain = new PhiliaBrain();
     const res = await brain.process("Hello Philia, state your name and readiness.");

@@ -8,7 +8,7 @@ export default tseslint.config(
       "**/node_modules/**",
       "**/dist/**",
       "**/src-tauri/**",
-      "browser_profile/**",
+      "**/browser_profile/**",
       "**/.git/**",
       "**/.kilo/**",
     ],

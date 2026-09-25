@@ -11,6 +11,7 @@ import { setAppConfirmationHandler } from "./tools/apps.js";
 import { setBrowserConfirmationHandler } from "./tools/browser.js";
 import { setFileWriteConfirmationHandler } from "./tools/filesWrite.js";
 import { setCommandConfirmationHandler } from "./tools/system.js";
+import { setCanvasConfirmationHandler } from "./tools/canvas.js";
 import {
   isFullAccessGranted,
   grantFullAccess,
@@ -99,6 +100,7 @@ setAppConfirmationHandler(promptConfirmation);
 setBrowserConfirmationHandler(promptConfirmation);
 setFileWriteConfirmationHandler(promptConfirmation);
 setCommandConfirmationHandler(promptConfirmation);
+setCanvasConfirmationHandler(promptConfirmation);
 
 onPermissionsChanged((granted) => {
   broadcastSse({ type: "permissions_updated", fullAccessGranted: granted });

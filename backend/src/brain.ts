@@ -16,6 +16,7 @@ import {
   browserType,
   browserReadPage,
 } from "./tools/browser.js";
+import { canvasDraw } from "./tools/canvas.js";
 
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
 
@@ -251,6 +252,27 @@ const browserToolDeclarations: FunctionDeclaration[] = [
   },
 ];
 
+const canvasToolDeclarations: FunctionDeclaration[] = [
+  {
+    name: "canvasDraw",
+    description: "Draw diagrams, circuits, shapes, and strokes directly on the desktop screen or MS Paint canvas. Automatically focuses Paint and renders complete electrical circuits (DC battery with +/- terminals, closed wire loop, resistor zigzag, switch, lamp/load, and ground), custom shapes, or continuous mouse strokes. Use this whenever the user asks to draw on Paint, sketch circuits, or create diagrams.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        action: {
+          type: Type.STRING,
+          description: "Drawing action: 'circuit' (draws full electrical schematic circuit), 'strokes' (custom mouse paths), 'clear' (reset canvas)",
+        },
+        component: {
+          type: Type.STRING,
+          description: "Circuit component to draw: 'all' (entire circuit with all parts: battery, wires, resistor, switch, load, ground), 'battery', 'resistor', 'switch', 'load', 'ground', 'wires'",
+        },
+      },
+      required: ["action"],
+    },
+  },
+];
+
 const allTools = [
   {
     functionDeclarations: [
@@ -259,6 +281,7 @@ const allTools = [
       ...filesToolDeclarations,
       ...appsToolDeclarations,
       ...browserToolDeclarations,
+      ...canvasToolDeclarations,
     ],
   },
 ];
@@ -338,6 +361,9 @@ async function executeTool(
       case "browserReadPage":
         result = await browserReadPage();
         break;
+      case "canvasDraw":
+        result = await canvasDraw(args);
+        break;
       default:
         throw new Error(`Tool "${name}" is not recognized.`);
     }
@@ -395,7 +421,19 @@ Core Directives:
    - To inspect or locate files across directories, use searchFiles, getFileMetadata, or readFileContent.
    - To write or safely recycle files, use writeFileContent or deleteFile.
 
-5. COMMUNICATION STYLE:
+5. DRAWING & CANVAS GOAL COMPLETION POLICY:
+   - When the user asks you to draw something (e.g. "Open paint and draw a simple circuit", "draw a circuit in Paint", "draw on canvas"):
+     1. NEVER STOP EARLY. Do NOT stop after just launching Paint or drawing a single partial line. Continue executing until the complete drawing or requested goal is 100% finished.
+     2. For "draw a simple circuit", the circuit MUST be drawn completely with all required elements:
+        - DC Voltage Source / Battery (positive and negative plates with +/- polarity signs)
+        - Connecting wires forming a complete closed circuit loop
+        - Resistor (classic zigzag pattern)
+        - Load or switch (e.g. lamp/LED or blade switch)
+        - Ground symbol
+     3. Use the canvasDraw tool with action: "circuit" and component: "all" to render the entire circuit onto the Paint canvas.
+     4. Always keep drawing until the entire goal is met.
+
+6. COMMUNICATION STYLE:
    - Provide concise, polished, and natural answers suitable for voice synthesis and holographic desktop chat.
    - If asked for your name or identity, state that you are Philia, which stands for Precise Holographic Intelligence and Logical Interface Assistant.`;
 }
@@ -493,33 +531,61 @@ export class PhiliaBrain {
 
     let response = await this.sendWithRetry({ message: prompt });
 
-    const maxIterations = 8;
+    const maxIterations = 30;
     let iteration = 0;
+    let goalRetryCount = 0;
+    const isDrawingGoal = /draw|circuit|paint|sketch|schematic|diagram/i.test(prompt);
 
-    while (response.functionCalls && response.functionCalls.length > 0 && iteration < maxIterations) {
-      iteration++;
-      const toolResponses = [];
+    while (iteration < maxIterations) {
+      if (response.functionCalls && response.functionCalls.length > 0) {
+        iteration++;
+        const toolResponses = [];
 
-      for (const call of response.functionCalls) {
-        const result = await executeTool(call.name, call.args || {}, onStatus);
-        toolsUsed.push({ tool: call.name, args: call.args || {}, result });
+        for (const call of response.functionCalls) {
+          const result = await executeTool(call.name, call.args || {}, onStatus);
+          toolsUsed.push({ tool: call.name, args: call.args || {}, result });
 
-        toolResponses.push({
-          functionResponse: {
-            name: call.name,
-            response: { output: result },
-            id: call.id,
-          },
+          toolResponses.push({
+            functionResponse: {
+              name: call.name,
+              response: { output: result },
+              id: call.id,
+            },
+          });
+        }
+
+        console.log(`[Philia Brain] 🔄 Sending tool output back to Gemini (step ${iteration})...`);
+        onStatus?.({
+          type: "thinking",
+          message: "Synthesizing tool results...",
         });
+
+        response = await this.sendWithRetry({ message: toolResponses });
+        continue;
       }
 
-      console.log(`[Philia Brain] 🔄 Sending tool output back to Gemini (step ${iteration})...`);
-      onStatus?.({
-        type: "thinking",
-        message: "Synthesizing tool results...",
-      });
+      // Check if user request is a drawing goal that has not yet been satisfied
+      const circuitDrawn = toolsUsed.some(
+        (t) => t.tool === "canvasDraw" && (t.result?.isGoalMet || t.result?.success || t.args?.action === "circuit")
+      );
 
-      response = await this.sendWithRetry({ message: toolResponses });
+      if (isDrawingGoal && !circuitDrawn && goalRetryCount < 3) {
+        goalRetryCount++;
+        iteration++;
+        console.log(`[Philia Brain] 🎯 Goal in progress: drawing requested, but canvas has not been completed. Prompting brain to finish...`);
+        onStatus?.({
+          type: "thinking",
+          message: "Continuing execution: completing the requested drawing on canvas...",
+        });
+
+        response = await this.sendWithRetry({
+          message: `[System Goal Directive]: The user asked: "${prompt}". Paint is active, but the full drawing is not yet completed. You must NOT stop until the entire goal is met! Use the canvasDraw tool with action: "circuit" and component: "all" to render the complete circuit onto the canvas now.`,
+        });
+        continue;
+      }
+
+      // Goal is satisfied or no further tool calls requested
+      break;
     }
 
     const finalAnswer = response.text || "Task complete.";
