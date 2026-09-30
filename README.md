@@ -9,9 +9,9 @@ A local, intelligent desktop assistant built in **Node.js** and **TypeScript**, 
 ## Architecture
 
 ```mermaid
-flowchart LR
     A[Mic Stream: PvRecorder] --> B[Wake Word: Porcupine Engine]
     B -- keyword detected --> C[Record Command Clip / VAD]
+flowchart LR
     C --> D[Speech-to-Text: Gemini]
     D --> E[Philia Brain + Tools]
     E -- function call --> F[Filesystem Tools: search, read, metadata, open]

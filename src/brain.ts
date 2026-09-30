@@ -15,8 +15,20 @@ import {
   browserClick,
   browserType,
   browserReadPage,
+  getDefaultBrowserInfo,
 } from "./tools/browser.js";
 import { canvasDraw } from "./tools/canvas.js";
+import { inspectScreen, locateOnScreen } from "./tools/screen.js";
+import {
+  desktopClick,
+  desktopMove,
+  desktopDrag,
+  desktopType,
+  desktopHotkey,
+  desktopScroll,
+  focusWindow,
+  getScreenDimensions,
+} from "./tools/desktop.js";
 
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
 
@@ -163,13 +175,13 @@ const appsToolDeclarations: FunctionDeclaration[] = [
   },
   {
     name: "openApplication",
-    description: "Open or launch ANY desktop application, game, or software by name (e.g. 'HoYoPlay', 'Discord', 'Steam', 'Spotify', 'Notepad', 'Calculator', 'Chrome', 'Edge', 'VS Code'). Uses high-speed shortcut and executable resolution.",
+    description: "Open or launch ANY desktop application, game, website, URL, or browser (e.g. 'HoYoPlay', 'Discord', 'Steam', 'Spotify', 'Notepad', 'Calculator', 'Opera GX', 'browser', 'YouTube', 'Reddit', 'Google', 'https://...'). Always opens websites, web searches, and browser tasks in the user's default browser with the user's active logged-in account.",
     parameters: {
       type: Type.OBJECT,
       properties: {
         name: {
           type: Type.STRING,
-          description: "Name or shortcut of the application to launch (e.g. 'HoYoPlay', 'Discord', 'calc')",
+          description: "Name or URL of the application, website, domain, or browser to launch (e.g. 'HoYoPlay', 'Discord', 'YouTube', 'reddit.com', 'https://github.com', 'browser')",
         },
       },
       required: ["name"],
@@ -180,13 +192,13 @@ const appsToolDeclarations: FunctionDeclaration[] = [
 const browserToolDeclarations: FunctionDeclaration[] = [
   {
     name: "browserOpen",
-    description: "Open or navigate the browser to a URL. Returns page title, URL, and a numbered map of interactive elements [1], [2], etc.",
+    description: "Open a web URL in the user's default browser with their active logged-in account, and return page details and interactive elements.",
     parameters: {
       type: Type.OBJECT,
       properties: {
         url: {
           type: Type.STRING,
-          description: "The full web URL or domain to navigate to",
+          description: "The full web URL or domain to open (e.g. 'https://youtube.com', 'reddit.com')",
         },
       },
       required: ["url"],
@@ -194,7 +206,7 @@ const browserToolDeclarations: FunctionDeclaration[] = [
   },
   {
     name: "browserSearch",
-    description: "Perform a web search using the browser and return the numbered map of search results and interactive elements.",
+    description: "Perform a web search in the user's default browser with their active logged-in account, returning search results and interactive elements.",
     parameters: {
       type: Type.OBJECT,
       properties: {
@@ -273,6 +285,169 @@ const canvasToolDeclarations: FunctionDeclaration[] = [
   },
 ];
 
+const screenToolDeclarations: FunctionDeclaration[] = [
+  {
+    name: "inspectScreen",
+    description: "Capture a screenshot and visually read/inspect what is currently on the user's computer screen/desktop using real-time multimodal vision. Call this whenever the user asks 'what is on my screen?', 'can you read my screen?', 'look at my screen', 'what am I looking at?', 'read the text/code on my screen', 'diagnose this error on my screen', or asks about any open windows, apps, diagrams, or content displayed on their monitor.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        query: {
+          type: Type.STRING,
+          description: "Optional specific question or prompt about what to inspect on screen (e.g. 'What error is shown?', 'Read the code in the editor', 'What apps are open?')",
+        },
+      },
+    },
+  },
+];
+
+const desktopToolDeclarations: FunctionDeclaration[] = [
+  {
+    name: "locateOnScreen",
+    description: "Visually locate a specific button, icon, link, input field, text, or UI element on the user's computer screen and return its exact (X, Y) pixel coordinates for clicking or interaction.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        target: {
+          type: Type.STRING,
+          description: "Visual description or text of the UI element to find (e.g. 'Search bar', 'Submit button', 'Settings gear icon', 'Close button', 'General channel')",
+        },
+      },
+      required: ["target"],
+    },
+  },
+  {
+    name: "desktopClick",
+    description: "Simulate a physical mouse click at specific screen pixel coordinates (x, y) on the user's desktop.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        x: {
+          type: Type.INTEGER,
+          description: "Screen X coordinate in pixels",
+        },
+        y: {
+          type: Type.INTEGER,
+          description: "Screen Y coordinate in pixels",
+        },
+        button: {
+          type: Type.STRING,
+          description: "Mouse button to click: 'left', 'right', or 'middle' (default: 'left')",
+        },
+        doubleClick: {
+          type: Type.BOOLEAN,
+          description: "Whether to perform a double-click (default: false)",
+        },
+      },
+      required: ["x", "y"],
+    },
+  },
+  {
+    name: "desktopMove",
+    description: "Move the mouse cursor to specific screen pixel coordinates (x, y).",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        x: {
+          type: Type.INTEGER,
+          description: "Screen X coordinate in pixels",
+        },
+        y: {
+          type: Type.INTEGER,
+          description: "Screen Y coordinate in pixels",
+        },
+        smooth: {
+          type: Type.BOOLEAN,
+          description: "Whether to smoothly animate the cursor movement (default: true)",
+        },
+      },
+      required: ["x", "y"],
+    },
+  },
+  {
+    name: "desktopDrag",
+    description: "Drag the mouse from start coordinates to end coordinates (holding left button).",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        startX: { type: Type.INTEGER, description: "Start X coordinate" },
+        startY: { type: Type.INTEGER, description: "Start Y coordinate" },
+        endX: { type: Type.INTEGER, description: "End X coordinate" },
+        endY: { type: Type.INTEGER, description: "End Y coordinate" },
+      },
+      required: ["startX", "startY", "endX", "endY"],
+    },
+  },
+  {
+    name: "desktopType",
+    description: "Type text into the currently active desktop window or focused input field using native OS keyboard input.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        text: {
+          type: Type.STRING,
+          description: "The text string to type",
+        },
+        pressEnter: {
+          type: Type.BOOLEAN,
+          description: "Whether to press Enter after typing (default: false)",
+        },
+      },
+      required: ["text"],
+    },
+  },
+  {
+    name: "desktopHotkey",
+    description: "Send a keyboard hotkey or shortcut combination (e.g. 'ctrl+s', 'ctrl+c', 'ctrl+v', 'alt+tab', 'enter', 'escape', 'win+d', 'tab', 'backspace').",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        keys: {
+          type: Type.STRING,
+          description: "Hotkey combination string separated by '+' (e.g. 'ctrl+s', 'ctrl+shift+esc', 'alt+f4', 'enter')",
+        },
+      },
+      required: ["keys"],
+    },
+  },
+  {
+    name: "desktopScroll",
+    description: "Scroll the mouse wheel. Positive values scroll up, negative values scroll down.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        deltaY: {
+          type: Type.INTEGER,
+          description: "Scroll amount (e.g. 120 for up, -120 for down)",
+        },
+      },
+      required: ["deltaY"],
+    },
+  },
+  {
+    name: "focusWindow",
+    description: "Bring an open application or window to the foreground and focus it by process name or window title (e.g. 'Notepad', 'Discord', 'Chrome', 'Spotify', 'VS Code', 'Steam').",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        target: {
+          type: Type.STRING,
+          description: "Window title or process name to focus",
+        },
+      },
+      required: ["target"],
+    },
+  },
+  {
+    name: "getScreenDimensions",
+    description: "Get the primary screen resolution width, height, and current mouse cursor position.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {},
+    },
+  },
+];
+
 const allTools = [
   {
     functionDeclarations: [
@@ -282,6 +457,8 @@ const allTools = [
       ...appsToolDeclarations,
       ...browserToolDeclarations,
       ...canvasToolDeclarations,
+      ...screenToolDeclarations,
+      ...desktopToolDeclarations,
     ],
   },
 ];
@@ -364,6 +541,58 @@ async function executeTool(
       case "canvasDraw":
         result = await canvasDraw(args);
         break;
+      case "inspectScreen":
+        result = await inspectScreen(args.query, (status) => {
+          onStatus?.({
+            type: "thinking",
+            tool: "inspectScreen",
+            message: status,
+          });
+        });
+        break;
+      case "locateOnScreen":
+        result = await locateOnScreen(args.target, (status) => {
+          onStatus?.({
+            type: "thinking",
+            tool: "locateOnScreen",
+            message: status,
+          });
+        });
+        break;
+      case "desktopClick":
+        result = await desktopClick(
+          Number(args.x),
+          Number(args.y),
+          args.button || "left",
+          Boolean(args.doubleClick)
+        );
+        break;
+      case "desktopMove":
+        result = await desktopMove(Number(args.x), Number(args.y), args.smooth !== false);
+        break;
+      case "desktopDrag":
+        result = await desktopDrag(
+          Number(args.startX),
+          Number(args.startY),
+          Number(args.endX),
+          Number(args.endY)
+        );
+        break;
+      case "desktopType":
+        result = await desktopType(args.text, Boolean(args.pressEnter));
+        break;
+      case "desktopHotkey":
+        result = await desktopHotkey(args.keys);
+        break;
+      case "desktopScroll":
+        result = await desktopScroll(Number(args.deltaY));
+        break;
+      case "focusWindow":
+        result = await focusWindow(args.target);
+        break;
+      case "getScreenDimensions":
+        result = await getScreenDimensions();
+        break;
       default:
         throw new Error(`Tool "${name}" is not recognized.`);
     }
@@ -390,8 +619,42 @@ async function executeTool(
   }
 }
 
+/**
+ * Detect if the user's spoken or typed prompt asks Philia to inspect or check their screen.
+ * Triggers on natural phrases like "at my screen", "look at my screen", "what's on my screen", etc.
+ */
+export function isScreenInspectionRequest(text: string): boolean {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+
+  if (
+    lower.includes("at my screen") ||
+    lower.includes("on my screen") ||
+    lower.includes("at the screen") ||
+    lower.includes("on the screen")
+  ) {
+    return true;
+  }
+
+  if (
+    lower.includes("my display") ||
+    lower.includes("my monitor") ||
+    lower.includes("my screen") ||
+    lower.includes("the screen")
+  ) {
+    if (
+      /look|see|check|read|inspect|view|what|describe|tell|summarize|diagnose|error|show|glance/i.test(lower)
+    ) {
+      return true;
+    }
+  }
+
+  return /(?:at|on|check|read|look|see|inspect|view|summarize|diagnose|examine)\s+(?:what(?:'s|\s+is)\s+)?(?:on\s+)?(?:my|the|this)?\s*(?:screen|display|monitor)/i.test(lower);
+}
+
 function buildSystemInstruction(): string {
   const fullAccess = isFullAccessGranted();
+  const browserInfo = getDefaultBrowserInfo();
   return `You are Philia (P.H.I.L.I.A. — Precise Holographic Intelligence and Logical Interface Assistant), a brilliant, articulate, and reliable desktop AI assistant.
 Current Environment:
 - Platform: ${process.platform}
@@ -399,6 +662,7 @@ Current Environment:
 - Assistant Name: Philia (P.H.I.L.I.A.)
 - Full Acronym: Precise Holographic Intelligence and Logical Interface Assistant
 - Computer Full Access: ${fullAccess ? "ENABLED (Unrestricted)" : "RESTRICTED (Requires User Grant)"}
+- User Default Browser: ${browserInfo.name} (${browserInfo.executablePath || "Default OS Handler"})
 
 Core Directives:
 1. FULL ACCESS & PERMISSION MANAGEMENT ("Ask first, never again"):
@@ -407,15 +671,19 @@ Core Directives:
    - When full access is enabled, you have unrestricted access to all drives, folders, installed software, and shell command execution via executeCommand.
    - If full access has NOT yet been granted and the user commands an action requiring system-level permissions, ask the user if they wish to grant full access to their computer.
 
-2. APPLICATION, BROWSER & FILE LAUNCHING:
-   - When the user asks to open or launch ANY application, game, software, or browser (e.g. "Open HoYoPlay", "Open Discord", "Open Steam", "Launch Calculator", "Open Spotify", "Start VS Code", "Open my browser", "Open Opera GX"), call openApplication immediately with the name.
-   - When the user asks to open their browser or visit a website (e.g. "open my browser", "open browser", "open YouTube", "open Google"), call openApplication with the name or URL. It will automatically open in the user's configured default browser (Opera GX).
+2. BROWSER & WEBSITES ("Always user default browser, always user active account"):
+   - CRITICAL REQUIREMENT FOR ANY BROWSER-RELATED TASK:
+     When doing ANY browser-related task (opening websites, opening the browser, searching the web, navigating to URLs, opening YouTube, Reddit, Google, Twitter/X, social media, web apps, etc.):
+     1. It MUST open the DEFAULT BROWSER of the user (${browserInfo.name}).
+     2. It MUST open in the ACCOUNT THE USER IS IN, NOT a separate one. Never open an isolated, guest, blank, or separate browser profile.
+   - When the user asks to open their browser or visit ANY website or URL (e.g. "open my browser", "open browser", "open YouTube", "open Google", "open Reddit", "go to github.com", "open twitter", "open netflix"), call openApplication or browserOpen with the name or URL. It will automatically open in the user's default browser (${browserInfo.name}) with their active logged-in account.
+   - When the user asks to search the web or look up information (e.g. "search for the weather", "search youtube for lo-fi", "look up best restaurants", "search google for XYZ"), call browserSearch or openApplication. It immediately opens the search results in the user's default browser (${browserInfo.name}) in their active account.
+   - When automated webpage inspection or content reading is needed, browserOpen and browserReadPage automatically inspect page content in the background while keeping the user's default browser in their active account.
+
+3. APPLICATION & FILE LAUNCHING:
+   - When the user asks to open or launch ANY desktop application, game, or software (e.g. "Open HoYoPlay", "Open Discord", "Open Steam", "Launch Calculator", "Open Spotify", "Start VS Code"), call openApplication immediately with the name.
    - When the user asks to open a specific file or document (e.g. "open notes.txt", "open resume.pdf", "open file X"), call openFile with the path or filename.
    - Do NOT run slow disk-crawling searches for applications. The openApplication tool resolves Desktop shortcuts, Start Menu shortcuts, system binaries, and game launchers with zero latency.
-
-3. WEB SEARCH & AUTOMATION:
-   - When the user asks you to look up information online, read webpage content, or automate website tasks (e.g. "search for the weather and summarize it", "read this webpage"), call browserSearch or browserOpen. The automated browser automatically integrates with the user's default browser (Opera GX).
-   - When browsing the web, examine the numbered interactive elements ([1], [2], etc.) and interact by ref.
 
 4. FILE OPERATIONS & WORKSPACE:
    - To inspect or locate files across directories, use searchFiles, getFileMetadata, or readFileContent.
@@ -433,9 +701,31 @@ Core Directives:
      3. Use the canvasDraw tool with action: "circuit" and component: "all" to render the entire circuit onto the Paint canvas.
      4. Always keep drawing until the entire goal is met.
 
-6. COMMUNICATION STYLE:
+6. COMMUNICATION STYLE & LANGUAGE POLICY (STRICT ENGLISH-ONLY OUTPUT):
    - Provide concise, polished, and natural answers suitable for voice synthesis and holographic desktop chat.
-   - If asked for your name or identity, state that you are Philia, which stands for Precise Holographic Intelligence and Logical Interface Assistant.`;
+   - If asked for your name or identity, state that you are Philia, which stands for Precise Holographic Intelligence and Logical Interface Assistant.
+   - STRICT MULTILINGUAL UNDERSTANDING WITH ENGLISH-ONLY OUTPUT:
+     1. Whenever the user speaks, asks questions, or gives instructions in ANY language other than English (e.g. Tagalog/Filipino, Spanish, Japanese, Mandarin/Chinese, French, German, Korean, Russian, Italian, Arabic, Portuguese, or mixed/code-switched dialects like Taglish):
+        - You MUST fully comprehend, interpret, and understand their meaning, intent, instructions, and nuances in that other language.
+        - You MUST execute any requested actions, tools, commands, or answers accurately based on their instructions.
+        - You MUST ALWAYS AND EXCLUSIVELY REPLY IN ENGLISH.
+     2. NEVER reply in the foreign language. Do NOT switch to or mirror the user's language. Even if the user greets you or prompts you in another language, every single sentence of your spoken and written reply MUST ALWAYS be 100% in English.
+
+7. SCREEN PERCEPTION & VISION ("at my screen", "look at my screen", "what's on my screen"):
+   - When the user says or types phrases like "at my screen", "look at my screen", "take a look at my screen", "what is currently on my screen", "check my screen", "read my screen", "see my screen", or asks any question about their screen/display/monitor, you MUST IMMEDIATELY call the inspectScreen tool.
+   - This is purely conversational and seamless: the user does not need to click any button or type a specific command. Saying or typing "at my screen" triggers your desktop vision immediately.
+   - NEVER tell the user that you cannot see their screen or that you do not have visual access. You possess real-time multimodal desktop vision through inspectScreen.
+   - Base your answer directly on the visual analysis returned by inspectScreen and explain what you see with clarity and precision.
+
+8. DESKTOP INTERACTION & MOTOR CONTROL (COMPUTER USE / RPA):
+   - You have full native motor capabilities to interact with any desktop window, software, game, or native app:
+     1. To bring an open application or window to the foreground, call focusWindow(target) or openApplication(name).
+     2. To visually find buttons, icons, links, or text fields on screen, call locateOnScreen(target). It returns the exact screen coordinates (x, y).
+     3. Once coordinates are known, call desktopClick(x, y) to click, or desktopMove(x, y) to position the cursor.
+     4. Call desktopType(text, pressEnter) to type text into active fields or windows.
+     5. Use desktopHotkey(keys) for keyboard shortcuts (e.g. "ctrl+s", "alt+tab", "enter", "escape", "ctrl+c", "ctrl+v", "win+d").
+     6. Use desktopScroll(deltaY) to scroll pages, feeds, or long documents.
+     7. Use desktopDrag(startX, startY, endX, endY) to drag items or sliders.`;
 }
 
 
@@ -534,7 +824,9 @@ export class PhiliaBrain {
     const maxIterations = 30;
     let iteration = 0;
     let goalRetryCount = 0;
+    let screenRetryCount = 0;
     const isDrawingGoal = /draw|circuit|paint|sketch|schematic|diagram/i.test(prompt);
+    const isScreenGoal = isScreenInspectionRequest(prompt);
 
     while (iteration < maxIterations) {
       if (response.functionCalls && response.functionCalls.length > 0) {
@@ -580,6 +872,32 @@ export class PhiliaBrain {
 
         response = await this.sendWithRetry({
           message: `[System Goal Directive]: The user asked: "${prompt}". Paint is active, but the full drawing is not yet completed. You must NOT stop until the entire goal is met! Use the canvasDraw tool with action: "circuit" and component: "all" to render the complete circuit onto the canvas now.`,
+        });
+        continue;
+      }
+
+      // Check if user request is asking to inspect or check their screen, but inspectScreen has not been called yet
+      const screenInspected = toolsUsed.some((t) => t.tool === "inspectScreen");
+      if (isScreenGoal && !screenInspected && screenRetryCount < 2) {
+        screenRetryCount++;
+        iteration++;
+        console.log(`[Philia Brain] 🖥️ Screen check requested: "${prompt}". Proactively executing inspectScreen...`);
+        onStatus?.({
+          type: "thinking",
+          tool: "inspectScreen",
+          message: "Checking your screen...",
+        });
+
+        const screenResult = await executeTool("inspectScreen", { query: prompt }, onStatus);
+        toolsUsed.push({ tool: "inspectScreen", args: { query: prompt }, result: screenResult });
+
+        response = await this.sendWithRetry({
+          message: `[System Vision Directive]: The user asked/commanded: "${prompt}". Philia captured and visually analyzed what is currently on the user's screen.
+Vision Inspection Analysis:
+"""
+${screenResult.analysis}
+"""
+Now, answer the user's request ("${prompt}") directly and articulately based on what is displayed on their screen.`,
         });
         continue;
       }

@@ -12,6 +12,13 @@ import { setBrowserConfirmationHandler } from "./tools/browser.js";
 import { setFileWriteConfirmationHandler } from "./tools/filesWrite.js";
 import { setCommandConfirmationHandler } from "./tools/system.js";
 import { setCanvasConfirmationHandler } from "./tools/canvas.js";
+import { setDesktopConfirmationHandler } from "./tools/desktop.js";
+import {
+  inspectScreen,
+  captureScreenBuffer,
+  getLatestScreenshot,
+  setFrontendScreenFrame,
+} from "./tools/screen.js";
 import {
   isFullAccessGranted,
   grantFullAccess,
@@ -101,6 +108,7 @@ setBrowserConfirmationHandler(promptConfirmation);
 setFileWriteConfirmationHandler(promptConfirmation);
 setCommandConfirmationHandler(promptConfirmation);
 setCanvasConfirmationHandler(promptConfirmation);
+setDesktopConfirmationHandler(promptConfirmation);
 
 onPermissionsChanged((granted) => {
   broadcastSse({ type: "permissions_updated", fullAccessGranted: granted });
@@ -468,6 +476,81 @@ function startApiServer() {
         await speak(body.text || "");
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: true }));
+        return;
+      }
+
+      if (url.pathname === "/api/screen/capture" && req.method === "GET") {
+        try {
+          let buffer = getLatestScreenshot();
+          if (!buffer) {
+            const capture = await captureScreenBuffer();
+            buffer = capture.buffer;
+          }
+          res.writeHead(200, {
+            "Content-Type": "image/jpeg",
+            "Content-Length": buffer.length,
+          });
+          res.end(buffer);
+        } catch (err: any) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: err.message || "Capture failed" }));
+        }
+        return;
+      }
+
+      if (url.pathname === "/api/screen/upload" && req.method === "POST") {
+        try {
+          const body = await readJsonBody();
+          if (!body.imageBase64) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Missing imageBase64 in request body" }));
+            return;
+          }
+          setFrontendScreenFrame(body.imageBase64, body.width, body.height);
+          broadcastSse({
+            type: "screen_frame_updated",
+            width: body.width,
+            height: body.height,
+            timestamp: Date.now(),
+          });
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: true, message: "Screen frame updated." }));
+        } catch (err: any) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: err.message }));
+        }
+        return;
+      }
+
+      if (url.pathname === "/api/screen/inspect" && req.method === "POST") {
+        try {
+          const body = await readJsonBody();
+          const query = body.query || "";
+          broadcastSse({ type: "thinking", message: "Inspecting screen with vision..." });
+
+          const inspectResult = await inspectScreen(query, (status) => {
+            broadcastSse({ type: "thinking", message: status });
+          });
+
+          broadcastSse({
+            type: "screen_inspected",
+            query,
+            analysis: inspectResult.analysis,
+            hasImage: inspectResult.hasImage,
+            thumbnailBase64: inspectResult.thumbnailBase64,
+            timestamp: inspectResult.timestamp,
+          });
+
+          if (body.playVoice !== false) {
+            speak(inspectResult.analysis).catch(() => {});
+          }
+
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify(inspectResult));
+        } catch (err: any) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: err.message }));
+        }
         return;
       }
 

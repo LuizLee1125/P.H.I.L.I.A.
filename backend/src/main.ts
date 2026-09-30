@@ -12,6 +12,7 @@ import { setBrowserConfirmationHandler } from "./tools/browser.js";
 import { setFileWriteConfirmationHandler } from "./tools/filesWrite.js";
 import { setCommandConfirmationHandler } from "./tools/system.js";
 import { setCanvasConfirmationHandler } from "./tools/canvas.js";
+import { setDesktopConfirmationHandler } from "./tools/desktop.js";
 import {
   inspectScreen,
   captureScreenBuffer,
@@ -107,6 +108,7 @@ setBrowserConfirmationHandler(promptConfirmation);
 setFileWriteConfirmationHandler(promptConfirmation);
 setCommandConfirmationHandler(promptConfirmation);
 setCanvasConfirmationHandler(promptConfirmation);
+setDesktopConfirmationHandler(promptConfirmation);
 
 onPermissionsChanged((granted) => {
   broadcastSse({ type: "permissions_updated", fullAccessGranted: granted });

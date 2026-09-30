@@ -18,7 +18,17 @@ import {
   getDefaultBrowserInfo,
 } from "./tools/browser.js";
 import { canvasDraw } from "./tools/canvas.js";
-import { inspectScreen } from "./tools/screen.js";
+import { inspectScreen, locateOnScreen } from "./tools/screen.js";
+import {
+  desktopClick,
+  desktopMove,
+  desktopDrag,
+  desktopType,
+  desktopHotkey,
+  desktopScroll,
+  focusWindow,
+  getScreenDimensions,
+} from "./tools/desktop.js";
 
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
 
@@ -291,6 +301,153 @@ const screenToolDeclarations: FunctionDeclaration[] = [
   },
 ];
 
+const desktopToolDeclarations: FunctionDeclaration[] = [
+  {
+    name: "locateOnScreen",
+    description: "Visually locate a specific button, icon, link, input field, text, or UI element on the user's computer screen and return its exact (X, Y) pixel coordinates for clicking or interaction.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        target: {
+          type: Type.STRING,
+          description: "Visual description or text of the UI element to find (e.g. 'Search bar', 'Submit button', 'Settings gear icon', 'Close button', 'General channel')",
+        },
+      },
+      required: ["target"],
+    },
+  },
+  {
+    name: "desktopClick",
+    description: "Simulate a physical mouse click at specific screen pixel coordinates (x, y) on the user's desktop.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        x: {
+          type: Type.INTEGER,
+          description: "Screen X coordinate in pixels",
+        },
+        y: {
+          type: Type.INTEGER,
+          description: "Screen Y coordinate in pixels",
+        },
+        button: {
+          type: Type.STRING,
+          description: "Mouse button to click: 'left', 'right', or 'middle' (default: 'left')",
+        },
+        doubleClick: {
+          type: Type.BOOLEAN,
+          description: "Whether to perform a double-click (default: false)",
+        },
+      },
+      required: ["x", "y"],
+    },
+  },
+  {
+    name: "desktopMove",
+    description: "Move the mouse cursor to specific screen pixel coordinates (x, y).",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        x: {
+          type: Type.INTEGER,
+          description: "Screen X coordinate in pixels",
+        },
+        y: {
+          type: Type.INTEGER,
+          description: "Screen Y coordinate in pixels",
+        },
+        smooth: {
+          type: Type.BOOLEAN,
+          description: "Whether to smoothly animate the cursor movement (default: true)",
+        },
+      },
+      required: ["x", "y"],
+    },
+  },
+  {
+    name: "desktopDrag",
+    description: "Drag the mouse from start coordinates to end coordinates (holding left button).",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        startX: { type: Type.INTEGER, description: "Start X coordinate" },
+        startY: { type: Type.INTEGER, description: "Start Y coordinate" },
+        endX: { type: Type.INTEGER, description: "End X coordinate" },
+        endY: { type: Type.INTEGER, description: "End Y coordinate" },
+      },
+      required: ["startX", "startY", "endX", "endY"],
+    },
+  },
+  {
+    name: "desktopType",
+    description: "Type text into the currently active desktop window or focused input field using native OS keyboard input.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        text: {
+          type: Type.STRING,
+          description: "The text string to type",
+        },
+        pressEnter: {
+          type: Type.BOOLEAN,
+          description: "Whether to press Enter after typing (default: false)",
+        },
+      },
+      required: ["text"],
+    },
+  },
+  {
+    name: "desktopHotkey",
+    description: "Send a keyboard hotkey or shortcut combination (e.g. 'ctrl+s', 'ctrl+c', 'ctrl+v', 'alt+tab', 'enter', 'escape', 'win+d', 'tab', 'backspace').",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        keys: {
+          type: Type.STRING,
+          description: "Hotkey combination string separated by '+' (e.g. 'ctrl+s', 'ctrl+shift+esc', 'alt+f4', 'enter')",
+        },
+      },
+      required: ["keys"],
+    },
+  },
+  {
+    name: "desktopScroll",
+    description: "Scroll the mouse wheel. Positive values scroll up, negative values scroll down.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        deltaY: {
+          type: Type.INTEGER,
+          description: "Scroll amount (e.g. 120 for up, -120 for down)",
+        },
+      },
+      required: ["deltaY"],
+    },
+  },
+  {
+    name: "focusWindow",
+    description: "Bring an open application or window to the foreground and focus it by process name or window title (e.g. 'Notepad', 'Discord', 'Chrome', 'Spotify', 'VS Code', 'Steam').",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        target: {
+          type: Type.STRING,
+          description: "Window title or process name to focus",
+        },
+      },
+      required: ["target"],
+    },
+  },
+  {
+    name: "getScreenDimensions",
+    description: "Get the primary screen resolution width, height, and current mouse cursor position.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {},
+    },
+  },
+];
+
 const allTools = [
   {
     functionDeclarations: [
@@ -301,6 +458,7 @@ const allTools = [
       ...browserToolDeclarations,
       ...canvasToolDeclarations,
       ...screenToolDeclarations,
+      ...desktopToolDeclarations,
     ],
   },
 ];
@@ -391,6 +549,49 @@ async function executeTool(
             message: status,
           });
         });
+        break;
+      case "locateOnScreen":
+        result = await locateOnScreen(args.target, (status) => {
+          onStatus?.({
+            type: "thinking",
+            tool: "locateOnScreen",
+            message: status,
+          });
+        });
+        break;
+      case "desktopClick":
+        result = await desktopClick(
+          Number(args.x),
+          Number(args.y),
+          args.button || "left",
+          Boolean(args.doubleClick)
+        );
+        break;
+      case "desktopMove":
+        result = await desktopMove(Number(args.x), Number(args.y), args.smooth !== false);
+        break;
+      case "desktopDrag":
+        result = await desktopDrag(
+          Number(args.startX),
+          Number(args.startY),
+          Number(args.endX),
+          Number(args.endY)
+        );
+        break;
+      case "desktopType":
+        result = await desktopType(args.text, Boolean(args.pressEnter));
+        break;
+      case "desktopHotkey":
+        result = await desktopHotkey(args.keys);
+        break;
+      case "desktopScroll":
+        result = await desktopScroll(Number(args.deltaY));
+        break;
+      case "focusWindow":
+        result = await focusWindow(args.target);
+        break;
+      case "getScreenDimensions":
+        result = await getScreenDimensions();
         break;
       default:
         throw new Error(`Tool "${name}" is not recognized.`);
@@ -514,7 +715,17 @@ Core Directives:
    - When the user says or types phrases like "at my screen", "look at my screen", "take a look at my screen", "what is currently on my screen", "check my screen", "read my screen", "see my screen", or asks any question about their screen/display/monitor, you MUST IMMEDIATELY call the inspectScreen tool.
    - This is purely conversational and seamless: the user does not need to click any button or type a specific command. Saying or typing "at my screen" triggers your desktop vision immediately.
    - NEVER tell the user that you cannot see their screen or that you do not have visual access. You possess real-time multimodal desktop vision through inspectScreen.
-   - Base your answer directly on the visual analysis returned by inspectScreen and explain what you see with clarity and precision.`;
+   - Base your answer directly on the visual analysis returned by inspectScreen and explain what you see with clarity and precision.
+
+8. DESKTOP INTERACTION & MOTOR CONTROL (COMPUTER USE / RPA):
+   - You have full native motor capabilities to interact with any desktop window, software, game, or native app:
+     1. To bring an open application or window to the foreground, call focusWindow(target) or openApplication(name).
+     2. To visually find buttons, icons, links, or text fields on screen, call locateOnScreen(target). It returns the exact screen coordinates (x, y).
+     3. Once coordinates are known, call desktopClick(x, y) to click, or desktopMove(x, y) to position the cursor.
+     4. Call desktopType(text, pressEnter) to type text into active fields or windows.
+     5. Use desktopHotkey(keys) for keyboard shortcuts (e.g. "ctrl+s", "alt+tab", "enter", "escape", "ctrl+c", "ctrl+v", "win+d").
+     6. Use desktopScroll(deltaY) to scroll pages, feeds, or long documents.
+     7. Use desktopDrag(startX, startY, endX, endY) to drag items or sliders.`;
 }
 
 

@@ -7,6 +7,9 @@
 node_modules/
 dist/
 build/
+backend/bin/
+bin/
+*.exe
 *.tsbuildinfo
 
 # Playwright user data & cache
